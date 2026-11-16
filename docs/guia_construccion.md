@@ -4,6 +4,9 @@ Esta guía explica cómo se armó el sistema, en el orden en que se hizo, con el
 explicado. La idea es que puedas rehacerlo o defenderlo sin ayuda. Cada paso termina con
 **cómo comprobar que funciona** antes de seguir al siguiente.
 
+**Anexos** (al final): A. el harness función por función · B. la base de datos tabla por tabla ·
+C. la estructura de Docker · D. cómo estudiar el código en VS Code.
+
 Archivos que se mencionan: todos están en este repositorio. Arquitectura y reglas de negocio:
 [`arquitectura_y_reglas.md`](arquitectura_y_reglas.md).
 
@@ -467,3 +470,533 @@ Principios que sirvieron todo el tiempo:
 - **¿Qué cambiaría para producción?** Correo institucional real, un servidor en vez del portátil,
   un conjunto de prueba independiente, casos mixtos evaluados y RN-12 completa (revisión manual
   cuando el modelo responde algo fuera del catálogo).
+
+---
+
+# Anexo A. El harness, archivo por archivo y función por función
+
+El harness está en `harness/` y tiene cuatro programas. Todos corren dentro del mismo contenedor
+(`harness/Dockerfile`: Python 3.11 + Tesseract en español + las librerías de `requirements.txt`).
+
+| Archivo | Qué es | Cómo se ejecuta |
+|---|---|---|
+| `main.py` | El procesador: lee del data lake, extrae texto, clasifica y guarda | `python main.py` (una vez) o `python main.py --ciclo 3` (worker) |
+| `clasificador.py` | El módulo de IA: prompt, llamada al modelo, validación y reglas | No se ejecuta solo; `main.py` llama a `clasificar(texto)` |
+| `evaluar.py` | Mide la precisión contra `etiquetas.csv` | `python evaluar.py` |
+| `reporte.py` | Genera el reporte mensual en PDF | `python reporte.py --mes 2026-10` |
+
+Librerías (`harness/requirements.txt` y el `Dockerfile`):
+
+| Librería | Para qué |
+|---|---|
+| `boto3` | Hablar con el data lake por el protocolo S3 (listar, leer y subir archivos) |
+| `psycopg2-binary` | Conectarse a PostgreSQL |
+| `requests` | Llamar a la API de Ollama (y, opcionalmente, a la de Claude) |
+| `Pillow` | Abrir imágenes |
+| `pytesseract` | Leer el texto de las fotos (OCR) con Tesseract |
+| `faster-whisper` | Transcribir audios (Whisper, versión optimizada para CPU) |
+| `matplotlib`, `reportlab` | Gráficos y PDF del reporte |
+
+## A.1 `main.py`: el procesador
+
+### Constantes
+
+| Nombre | Valor | Para qué |
+|---|---|---|
+| `BUCKET_RAW` | `"pqrs-raw"` | Bucket donde están los originales |
+| `PREFIJOS` | `textos/ → texto`, `audios/ → audio`, `fotos/ → foto` | Carpetas de los datos sintéticos y su canal |
+| `PREFIJO_PAQUETES` | `"radicaciones/"` | Carpeta de las PQRS que llegan desde la web |
+| `MANIFIESTO` | `"manifiesto.json"` | Archivo que marca un paquete como completo |
+| `EXTRACTORES` | `{texto: leer_texto, audio: transcribir_audio, foto: leer_foto}` | Qué función usar según el canal |
+| `ORDEN_PARTES` | `texto, audio, foto` | Orden en que se unen las partes de un paquete |
+| `ETIQUETA_PARTE` | "Texto escrito", "Transcripción del audio", "Texto de la foto" | Etiquetas que ve el modelo |
+
+### Funciones
+
+**`conectar_s3()`**: crea el cliente de `boto3` apuntando al data lake (`S3_ENDPOINT`, que en
+Docker es `http://rustfs:9000`) con las credenciales del `.env`. Usa `addressing_style="path"`
+porque RustFS, como MinIO, espera la ruta `http://servidor/bucket/archivo`.
+
+**`conectar_db(intentos=20)`**: se conecta a PostgreSQL. Si la base todavía está arrancando,
+reintenta cada 3 segundos hasta 20 veces; si no lo logra, termina con un mensaje claro.
+
+**`preparar_esquema(conn)`**: pone al día una base creada con una versión anterior: agrega
+`fecha_recepcion` y `segundos_clasificacion`, permite el canal `mixto` y crea `pqrs_partes`. Todo
+usa `IF NOT EXISTS`, así que correrla varias veces no rompe nada (es *idempotente*).
+
+**`leer_texto(datos)`**: convierte los bytes a texto UTF-8. `errors="replace"` evita que un
+carácter raro detenga el proceso.
+
+**`transcribir_audio(datos)`**: carga Whisper una sola vez (variable global `_whisper`) y lo
+reutiliza; cargarlo en cada audio sería muy lento. `faster-whisper` necesita un archivo, por eso
+guarda los bytes en un temporal, transcribe con `language="es"`, une los segmentos y borra el
+temporal en el `finally` (se borra aunque haya error). Si recibe `None`, solo carga el modelo:
+así el worker lo precarga al arrancar (`PRECARGAR_WHISPER=1`).
+
+**`leer_foto(datos)`**: abre la imagen desde memoria (`io.BytesIO`) y le pasa Tesseract en
+español (`lang="spa"`).
+
+**`listar_objetos(s3)`**: es un *generador* (`yield`): va entregando `(clave, canal)` de cada
+archivo en `textos/`, `audios/` y `fotos/`, y luego `(clave_manifiesto, "paquete")` por cada
+`manifiesto.json` en `radicaciones/`. Usa un *paginador* porque S3 entrega máximo 1.000 objetos
+por consulta.
+
+**`procesar_paquete(s3, clave_manifiesto)`**: procesa una PQRS de la web.
+1. Lee el manifiesto (JSON con el radicado, la fecha y la lista de partes).
+2. Ordena las partes (texto, audio, foto).
+3. Para cada parte: descarga, extrae el texto y mide el tiempo con `time.perf_counter()`. Si falla,
+   guarda el error y sigue con la siguiente.
+4. Si solo una parte dejó texto, lo usa tal cual; si son varias, las une con etiquetas
+   (`[Texto escrito] …`).
+5. Canal: el de la parte si es una sola; `mixto` si son varias.
+6. Si hay texto, llama a `clasificar` y mide cuánto tardó. Si no hay texto, no clasifica (el caso
+   quedará en revisión manual).
+7. Devuelve `(caso, partes)`.
+
+**`guardar_paquete(conn, clave_manifiesto, caso, partes)`**: inserta el caso en `pqrs_casos` con
+`ON CONFLICT (archivo_origen) DO NOTHING` (si ya existía, no hace nada) y, solo si se insertó
+(`cur.rowcount`), inserta cada parte en `pqrs_partes`. Luego `commit`.
+
+**`main()`**: lee los argumentos `--limite` y `--ciclo`, se conecta y prepara el esquema.
+- Sin `--ciclo`: llama una vez a `procesar` y termina.
+- Con `--ciclo N`: modo *worker*. Repite `procesar` cada N segundos para siempre. Si algo falla
+  (por ejemplo, la base se reinició), imprime el error, se reconecta y sigue.
+
+**`procesar(s3, conn, limite=0, silencioso=False)`**: una vuelta completa.
+1. Consulta qué `archivo_origen` ya están en `pqrs_casos`.
+2. Arma la lista de pendientes (lo que está en el data lake y no en la base).
+3. Si es un paquete, usa `procesar_paquete` y `guardar_paquete`.
+4. Si es un archivo suelto: descarga, toma la fecha de los metadatos, extrae el texto (si queda
+   vacío, es un error), clasifica e inserta en `pqrs_casos`.
+5. Cada archivo va en su propio `try`: si uno falla, `rollback` y sigue con el siguiente.
+6. Al final imprime cuántos procesó por canal y cuántos errores hubo.
+
+`silencioso=True` (modo worker) evita imprimir cada 3 segundos cuando no hay nada nuevo.
+
+## A.2 `clasificador.py`: el módulo de IA
+
+### Constantes
+
+| Nombre | Para qué |
+|---|---|
+| `TIPOS`, `URGENCIAS` | Catálogos cerrados (RN-09) |
+| `AREA_POR_TEMA` | Tabla fija tema → área (RN-10). `TEMAS` son sus claves |
+| `PALABRAS_ALERTA` | Vocabulario de riesgo que sube la urgencia a alta (RN-11) |
+| `POR_DEFECTO` | Valores que se usan si el modelo responde algo inválido |
+| `ETIQUETAS_PARTES` | Etiquetas que identifican una PQRS de varias partes |
+
+### Funciones
+
+**`clasificar(texto)`**: la única función que usa el resto del sistema.
+1. Elige el modelo según `CLASSIFIER` (`ollama` por defecto, o `claude`).
+2. Arma el prompt con `_prompt(texto)`.
+3. Hasta dos intentos: llama al modelo → `_extraer_json` → `_normalizar` → `_finalizar`.
+   Con `CLASSIFIER_DEBUG=1` imprime la respuesta cruda del modelo.
+4. Si los dos intentos fallan, usa `POR_DEFECTO` y lo avisa en el log.
+5. Devuelve `{tipo, tema, urgencia, area, clasificador, nota}`.
+
+**`_prompt(texto)`**: el texto que recibe el modelo: formato JSON obligatorio, definición de cada
+tipo, tema y urgencia, seis ejemplos y el mensaje a clasificar (máximo 6.000 caracteres).
+
+**`_nota_partes(texto)`**: si el mensaje trae etiquetas de varias partes, agrega al prompt una
+frase que dice que todas son el mismo caso. Si no, no agrega nada; así el prompt de los casos de un
+solo canal es idéntico al que se evaluó.
+
+**`_llamar_ollama(prompt)`**: `POST /api/chat` a Ollama con `format: "json"` (obliga a responder
+JSON) y `temperature: 0` (misma respuesta cada vez). Espera hasta 300 segundos, porque en CPU
+puede tardar.
+
+**`_llamar_claude(prompt)`**: lo mismo con la API de Anthropic. Solo se usa con
+`CLASSIFIER=claude` y una clave en el `.env`; si falta la clave, da un error claro.
+
+**`_extraer_json(texto)`**: toma lo que hay entre la primera `{` y la última `}` y lo convierte con
+`json.loads`. Así funciona aunque el modelo agregue texto alrededor del JSON.
+
+**`_sin_tildes(valor)`**: quita tildes y pasa a minúsculas (`"Petición"` → `"peticion"`), para
+comparar con los catálogos.
+
+**`_normalizar(datos)`**: valida tipo, tema y urgencia contra los catálogos. Si alguno no está,
+imprime un `aviso` y usa el valor por defecto. Calcula el área con `AREA_POR_TEMA`.
+
+**`_escalar_urgencia(texto, urgencia)`**: si `URGENCIA_REGLAS=1` y la urgencia no es ya alta,
+busca las palabras de alerta en el texto (sin tildes) y, si encuentra una, devuelve `"alta"` y una
+nota que dice qué palabra la activó.
+
+**`_finalizar(resultado, texto, modo)`**: aplica `_escalar_urgencia` y marca el clasificador como
+`ollama+reglas` (o `ollama` si las reglas están apagadas). Así cada fila de la base dice con qué
+configuración se clasificó.
+
+## A.3 `evaluar.py`: la medición
+
+**`cargar_etiquetas(ruta)`**: lee `etiquetas.csv` en un diccionario `{nombre_archivo: fila}`.
+
+**`calcular(etiquetas, filas)`**: compara cada caso de la base con su etiqueta correcta. Ignora
+los casos que no tienen etiqueta (por ejemplo, las PQRS de la web). Cuenta aciertos de tipo,
+tema y urgencia, el porcentaje con los tres bien (`exacto`), los resultados por canal, la lista de
+errores y el *recall* de urgencia alta (de los casos realmente urgentes, cuántos detectó).
+
+**`imprimir(res, nombre)`**: muestra la tabla en pantalla.
+
+**`main()`**: lee `pqrs_casos`, toma el nombre del clasificador más usado, calcula, imprime y guarda
+`reports/evaluacion_<clasificador>.json`.
+
+## A.4 `reporte.py`: el informe mensual
+
+**`main()`**: toma el mes de `--mes` (o el más reciente con datos), lee los casos de ese mes, llama a
+`construir_pdf` y sube el PDF al bucket `pqrs-reportes` (salvo con `--sin-subir`).
+
+**`grafico_resumen(filas)`**: cuatro gráficos de barras con `matplotlib` (tipo, urgencia, canal y
+tema) en una sola imagen.
+
+**`hallazgos(filas)`**: frases automáticas (total por canal, tema y tipo más frecuentes, casos
+urgentes y áreas con más urgencias) y recomendaciones simples.
+
+**`extracto(texto, n=150)`**: resume cada caso urgente quitando saludos, nombres, encabezados y
+firmas, para no mostrar datos personales en el reporte (RN-20). Es "mejor esfuerzo": está pensado
+para el formato de los datos sintéticos.
+
+**`construir_pdf(filas, mes, ruta, clasificador)`**: arma el PDF con `reportlab`: título, resumen,
+gráficos, recomendaciones, tabla por área, tabla de casos urgentes y una nota de que la
+clasificación es automática.
+
+---
+
+# Anexo B. La base de datos, tabla por tabla
+
+Hay siete tablas. Las crean tres lugares distintos, todos con `IF NOT EXISTS` para que puedan
+correr en cualquier orden:
+- `db/init.sql`: lo ejecuta PostgreSQL la primera vez que arranca (`pqrs_casos`, `pqrs_partes`).
+- `harness/main.py` → `preparar_esquema`: pone al día bases viejas.
+- `web/comun.py` → `ESQUEMA`: las tablas de la web, que se crean cuando arranca la web.
+
+## B.1 Cómo se relacionan
+
+```
+usuarios ──< radicaciones ──< historial
+   │              │
+   │              ├── gestion            (0 o 1 por radicado)
+   │              │
+   │              └ ─ ─ pqrs_casos ──< pqrs_partes
+   │                 (se unen por archivo_origen)
+   └── codigos_acceso  (por correo, temporal)
+```
+
+`──<` significa "uno a muchos". La línea punteada entre `radicaciones` y `pqrs_casos` no es una
+llave foránea: las escriben programas distintos (la web y el harness) y se unen por la ruta del
+archivo. `pqrs_casos.archivo_origen` es `pqrs-raw/` + `radicaciones.archivo_origen`.
+
+¿Por qué dos tablas y no una? `pqrs_casos` es el resultado del **harness**, y también tiene los
+30 casos sintéticos, que no vienen de la web. `radicaciones` es lo que registra la **web** cuando
+alguien radica. Separarlas permite que el harness funcione igual con o sin la web.
+
+## B.2 Las tablas
+
+### `pqrs_casos` (la escribe el harness)
+Una fila por PQRS procesada. Es el resultado del modelo, tal como respondió.
+
+| Columna | Tipo | Significado |
+|---|---|---|
+| `id` | SERIAL, PK | Número interno |
+| `archivo_origen` | TEXT, UNIQUE | Ruta en el data lake. El `UNIQUE` impide procesar dos veces lo mismo |
+| `canal` | TEXT, CHECK | `texto`, `audio`, `foto` o `mixto` |
+| `texto_extraido` | TEXT | Lo que leyó el sistema (unido con etiquetas si hay varias partes) |
+| `tipo`, `tema`, `urgencia` | TEXT, CHECK | Clasificación del modelo (vacíos si no se pudo clasificar) |
+| `area_destino` | TEXT | Área calculada a partir del tema |
+| `clasificador` | TEXT | `ollama+reglas`, `ollama`, `claude…` o `sin texto` |
+| `fecha_recepcion` | DATE | Fecha de la PQRS; el reporte mensual agrupa por ella |
+| `segundos_clasificacion` | REAL | Lo que tardó el modelo (solo PQRS de la web) |
+| `creado_en` | TIMESTAMP | Cuándo la guardó el harness |
+
+### `pqrs_partes` (la escribe el harness)
+Una fila por cada parte de una PQRS de la web.
+
+| Columna | Tipo | Significado |
+|---|---|---|
+| `id` | SERIAL, PK | |
+| `archivo_origen` | TEXT, FK → `pqrs_casos` | A qué caso pertenece. `ON DELETE CASCADE`: si se borra el caso, se borran sus partes |
+| `tipo` | TEXT, CHECK | `texto`, `audio` o `foto` |
+| `archivo` | TEXT | Ruta del archivo de esa parte |
+| `texto_extraido` | TEXT | Lo que se leyó de esa parte |
+| `segundos` | REAL | Cuánto tardó la extracción (RN-17) |
+| `error` | TEXT | Por qué falló, si falló |
+
+### `usuarios` (la escribe la web)
+| Columna | Tipo | Significado |
+|---|---|---|
+| `id` | SERIAL, PK | |
+| `correo` | TEXT, UNIQUE | Correo institucional |
+| `rol` | TEXT, CHECK | `usuario`, `funcionario` o `admin` (RN-02) |
+| `area` | TEXT | Área del funcionario (vacía para los demás) |
+| `creado_en` | TIMESTAMP | Primer ingreso |
+
+### `codigos_acceso` (la escribe la web)
+Un código vigente por correo; se borra al ingresar.
+
+| Columna | Tipo | Significado |
+|---|---|---|
+| `correo` | TEXT, PK | Para quién es el código |
+| `codigo_hash` | TEXT | Huella SHA-256 del código. **El código nunca se guarda en claro** |
+| `expira_en` | TIMESTAMP | Vence a los 10 minutos |
+| `intentos` | INT | Intentos fallidos (máximo 5) |
+
+### `radicaciones` (la escribe la web)
+Una fila por PQRS radicada desde la web.
+
+| Columna | Tipo | Significado |
+|---|---|---|
+| `id` | SERIAL, PK | |
+| `radicado` | TEXT, UNIQUE | `PQRS-AAAA-NNNNNN`. El número sale de la secuencia `radicado_seq` (RN-05) |
+| `usuario_id` | INT, FK → `usuarios` | Quién la radicó (RN-03: no hay anónimas) |
+| `canal` | TEXT, CHECK | `texto`, `audio`, `foto` o `mixto` |
+| `archivo_origen` | TEXT, UNIQUE | Ruta del manifiesto en el data lake |
+| `partes` | JSONB | Lista de partes, para mostrarlas antes de que el harness termine |
+| `sha256` | TEXT | Huella del contenido, para no aceptar dos veces lo mismo (RN-08) |
+| `acepta_datos` | BOOLEAN | Aceptó el tratamiento de datos (RN-04) |
+| `recibido_en` | TIMESTAMP | Cuándo se radicó; de aquí salen el plazo y el semáforo |
+
+### `gestion` (la escribe el panel)
+El trabajo humano sobre un caso. Cero o una fila por radicado.
+
+| Columna | Tipo | Significado |
+|---|---|---|
+| `radicado` | TEXT, PK y FK → `radicaciones` | |
+| `tipo`, `tema`, `urgencia` | TEXT | Clasificación corregida por un funcionario. Si están vacías, vale la del modelo (RN-13) |
+| `estado` | TEXT, CHECK | `en_gestion`, `respondida` o `cerrada`. Vacío = "clasificada" |
+| `respuesta`, `respondida_en` | TEXT, TIMESTAMP | La respuesta al usuario y cuándo se envió |
+| `actualizado_por`, `actualizado_en` | INT FK → `usuarios`, TIMESTAMP | Quién y cuándo tocó el caso por última vez |
+
+### `historial` (la escriben la web y el panel)
+Bitácora de todo lo que pasó con un caso: radicada, clasificación corregida, cambios de estado.
+
+| Columna | Tipo | Significado |
+|---|---|---|
+| `id` | SERIAL, PK | |
+| `radicado` | TEXT, FK → `radicaciones` | |
+| `usuario_id` | INT, FK → `usuarios` | Quién hizo la acción |
+| `accion`, `detalle` | TEXT | Qué se hizo y el detalle (por ejemplo, "antes → después") |
+| `creado_en` | TIMESTAMP | Cuándo |
+
+## B.3 Cómo se calcula lo que ve la pantalla
+
+El **estado** que ve el usuario no está guardado en una sola columna; la web lo deduce
+(`web/comun.py` → `armar_caso`):
+
+| Situación | Estado |
+|---|---|
+| Hay radicación pero el harness aún no crea la fila en `pqrs_casos` | En proceso |
+| Ya está en `pqrs_casos` pero falta tipo, tema o urgencia | Revisión manual |
+| Clasificada y sin fila en `gestion` (o con `estado` vacío) | Clasificada |
+| `gestion.estado` tiene valor | En gestión, Respondida o Cerrada |
+
+El **valor que se muestra** de tipo, tema y urgencia es el corregido (`gestion`) si existe; si no,
+el del modelo (`pqrs_casos`). El **plazo** se calcula desde `radicaciones.recibido_en` sumando
+días hábiles según la urgencia, y el **semáforo** compara el tiempo que queda con el plazo total.
+
+## B.4 Consultas útiles para la sustentación
+
+Abrir la consola de la base:
+```
+docker compose exec postgres psql -U pqrs -d pqrs
+```
+
+```sql
+-- Cuántos casos hay por canal y por urgencia
+SELECT canal, urgencia, COUNT(*) FROM pqrs_casos GROUP BY canal, urgencia ORDER BY 1, 2;
+
+-- Una PQRS de la web completa: radicación, clasificación del modelo y gestión
+SELECT r.radicado, r.canal, c.tipo, c.tema, c.urgencia, c.area_destino,
+       g.estado, g.respuesta
+FROM radicaciones r
+LEFT JOIN pqrs_casos c ON c.archivo_origen = 'pqrs-raw/' || r.archivo_origen
+LEFT JOIN gestion g     ON g.radicado = r.radicado
+ORDER BY r.recibido_en DESC;
+
+-- Lo que tardó cada parte de las PQRS de la web
+SELECT archivo_origen, tipo, segundos, error FROM pqrs_partes ORDER BY id;
+
+-- Casos que un funcionario corrigió (cuánto se equivoca el modelo en la práctica)
+SELECT r.radicado, c.tipo AS modelo_tipo, g.tipo AS corregido_tipo,
+       c.urgencia AS modelo_urgencia, g.urgencia AS corregida_urgencia
+FROM gestion g
+JOIN radicaciones r ON r.radicado = g.radicado
+JOIN pqrs_casos c   ON c.archivo_origen = 'pqrs-raw/' || r.archivo_origen
+WHERE g.tipo IS NOT NULL;
+```
+
+---
+
+# Anexo C. La estructura de Docker
+
+## C.1 Las piezas
+
+| Concepto | Qué es | En este proyecto |
+|---|---|---|
+| **Imagen** | Plantilla de solo lectura con un programa y todo lo que necesita | `postgres:16`, `rustfs/rustfs:1.0.0`, `ollama/ollama:0.40.16`, y las que construimos: web y harness |
+| **Dockerfile** | Receta para construir una imagen propia | `web/Dockerfile` y `harness/Dockerfile` |
+| **Contenedor** | Una imagen corriendo | `pqrs-web`, `pqrs-worker`, `pqrs-postgres`… |
+| **Volumen** | Disco que sobrevive aunque se borre el contenedor | Los datos de la base, del data lake, el modelo y Whisper |
+| **Red** | Red privada donde los contenedores se ven por su nombre | `pqrs-inteligente_default` (la crea Compose) |
+| **Puerto publicado** | Abre un puerto del contenedor en el PC | `8000:8000` = el puerto 8000 del PC lleva al 8000 del contenedor |
+| **Docker Compose** | Archivo YAML que describe y levanta todos los servicios juntos | `docker-compose.yml` + `docker-compose.web.yml` |
+
+## C.2 Por qué hay dos archivos de Compose
+
+- `docker-compose.yml` (del equipo, núcleo de datos): data lake, base de datos, Ollama y el
+  harness a demanda.
+- `docker-compose.web.yml` (capa de usuario): web, worker, correo de prueba y túnel.
+
+Se usan juntos con `-f` y Compose los combina en uno solo:
+```
+docker compose -f docker-compose.yml -f docker-compose.web.yml up -d --build
+```
+Así el núcleo funciona sin la web (para evaluar y hacer reportes) y la web se agrega encima.
+
+## C.3 Los servicios
+
+| Servicio | Contenedor | Imagen | Puertos en el PC | Volúmenes | Depende de |
+|---|---|---|---|---|---|
+| `rustfs` | `pqrs-datalake` | `rustfs/rustfs:1.0.0` | 9000 (API S3), 9001 (consola) | `datalake_data:/data` | — |
+| `postgres` | `pqrs-postgres` | `postgres:16` | 5432 | `pg_data`, y `db/init.sql` montado | — |
+| `ollama` | `pqrs-ollama` | `ollama/ollama:0.40.16` | 11434 | `ollama_data:/root/.ollama` | — |
+| `ollama-init` | `pqrs-ollama-init` | igual que ollama | — | — | `ollama` |
+| `harness` | `pqrs-harness` | construida desde `./harness` | — | `whisper_cache`, `./reports`, `etiquetas.csv` | `postgres` (sana), `rustfs`, `ollama` |
+| `web` | `pqrs-web` | construida desde `./web` | 8000 | — | `postgres` (sana), `rustfs`, `mailpit` |
+| `worker` | `pqrs-worker` | construida desde `./harness` | — | `whisper_cache` | `postgres` (sana), `rustfs`, `ollama` |
+| `mailpit` | `pqrs-correo` | `axllent/mailpit` | 8025 | — | — |
+| `tunnel` | `pqrs-tunel` | `cloudflare/cloudflared` | — | — | `web` |
+
+Detalles que conviene saber explicar:
+- **`ollama-init`** es un contenedor de un solo uso: espera a que Ollama responda
+  (`until ollama list`), descarga el modelo (`ollama pull llama3.2:3b`) y termina
+  (`restart: "no"`). El modelo queda en el volumen `ollama_data`, así que solo se descarga la primera vez.
+- **`harness`** tiene `profiles: ["harness"]`: no arranca con `up -d`, solo cuando lo pides con
+  `docker compose run --rm harness …` (evaluar, reporte, procesar a mano). `--rm` borra el
+  contenedor al terminar.
+- **`worker`** usa la **misma imagen** que el harness, pero con otro comando
+  (`python main.py --ciclo 3`) y `restart: unless-stopped`: si se cae, Docker lo levanta de nuevo.
+- **`postgres`** tiene un `healthcheck` (`pg_isready`). Los servicios que dicen
+  `condition: service_healthy` esperan a que la base de verdad acepte conexiones, no solo a que el
+  contenedor exista.
+- **`tunnel`** no publica puertos: sale a internet hacia Cloudflare y de ahí trae el tráfico hasta
+  `http://web:8000`. Por eso funciona aunque la red no permita conexiones entrantes.
+
+## C.4 La red interna
+
+Dentro de Docker cada servicio se llama por su nombre:
+
+```
+web     → postgres:5432   (base de datos)
+web     → rustfs:9000     (data lake)
+web     → mailpit:1025    (correo de prueba)
+web     → tunnel:2000     (pregunta el enlace público)
+worker  → rustfs:9000, postgres:5432, ollama:11434
+tunnel  → web:8000
+```
+
+Por eso en el código las direcciones son `http://rustfs:9000` o `host=postgres` y no `localhost`:
+dentro de un contenedor, `localhost` es el propio contenedor. Los puertos publicados (8000, 8025,
+9001…) son solo para que **tú** entres desde el navegador del PC.
+
+## C.5 Los volúmenes (dónde viven los datos)
+
+| Volumen | Qué guarda | Si lo borras |
+|---|---|---|
+| `datalake_data` | Todos los archivos del data lake | Se pierden los originales y los reportes |
+| `pg_data` | La base de datos | Se pierden casos, usuarios y gestión |
+| `ollama_data` | El modelo `llama3.2:3b` (2 GB) | Se vuelve a descargar |
+| `whisper_cache` | El modelo de Whisper (~500 MB) | Se vuelve a descargar |
+
+`docker compose down` borra contenedores y red, **pero no los volúmenes**. `docker compose down -v`
+sí los borra (todo empieza de cero). Úsalo solo si de verdad quieres borrar los datos.
+
+## C.6 Las dos imágenes propias
+
+`harness/Dockerfile`:
+```dockerfile
+FROM python:3.11-slim                         # Python liviano
+RUN apt-get install tesseract-ocr tesseract-ocr-spa   # OCR en español (programa del sistema)
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt           # librerías de Python
+RUN pip install matplotlib reportlab          # capa aparte: cambiar el reporte no reinstala todo
+COPY . .                                      # el código va de último
+CMD ["python", "main.py"]
+```
+
+`web/Dockerfile`:
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt   # FastAPI, uvicorn, boto3, psycopg...
+COPY . .
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", ...]
+```
+
+¿Por qué el código se copia **al final**? Docker construye por **capas** y reutiliza las que no
+cambiaron. Si el código va de último, al editar un `.py` solo se rehace esa capa y la construcción
+tarda segundos; las librerías (lo lento) quedan en caché.
+
+`--host 0.0.0.0` hace que la web escuche fuera del contenedor (si no, solo se vería por dentro), y
+`--proxy-headers` hace que entienda que llega por HTTPS a través del túnel.
+
+## C.7 Las variables de entorno
+
+Compose lee el `.env` y reemplaza `${VARIABLE}` en los YAML. `${VARIABLE:-valor}` significa "usa
+el `.env` y, si no está, este valor por defecto". El código las lee con `os.getenv(...)`. Así las
+contraseñas nunca están en el código ni en el repositorio.
+
+## C.8 Comandos del día a día
+
+```
+# Levantar todo (construye lo que cambió)
+docker compose -f docker-compose.yml -f docker-compose.web.yml up -d --build
+
+# Ver qué está corriendo
+docker compose -f docker-compose.yml -f docker-compose.web.yml ps
+
+# Ver qué hace un servicio (Ctrl + C para salir)
+docker logs -f pqrs-worker
+docker logs -f pqrs-web
+
+# Ejecutar el harness a demanda
+docker compose -f docker-compose.yml -f docker-compose.web.yml run --rm harness python evaluar.py
+docker compose -f docker-compose.yml -f docker-compose.web.yml run --rm harness python reporte.py --mes 2026-11
+
+# Entrar a la base de datos
+docker compose exec postgres psql -U pqrs -d pqrs
+
+# Apagar sin perder datos
+docker compose -f docker-compose.yml -f docker-compose.web.yml stop
+```
+
+Al terminar, cierra Docker Desktop desde su ícono (*Quit Docker Desktop*), nunca forzándolo: en
+este PC un cierre forzado deja archivos bloqueados y Docker no vuelve a arrancar (sección 13).
+
+---
+
+# Anexo D. Cómo estudiar el código en Visual Studio Code
+
+Abre la carpeta del proyecto en VS Code y sigue este orden. Junto a cada archivo está la sección
+de esta guía que lo explica.
+
+| # | Archivo | Sección |
+|---|---|---|
+| 1 | `docker-compose.yml` y `docker-compose.web.yml` | 2 y Anexo C |
+| 2 | `db/init.sql` | 2 y Anexo B |
+| 3 | `synthetic_data/generar_datos.py` | 3 |
+| 4 | `harness/main.py`: empieza por `procesar` y `procesar_paquete` | 4, 9 y Anexo A.1 |
+| 5 | `harness/clasificador.py`: empieza por `clasificar` | 5 y Anexo A.2 |
+| 6 | `harness/evaluar.py` y `harness/reporte.py` | 6, 7, A.3 y A.4 |
+| 7 | `web/reglas.py` | 8 y `arquitectura_y_reglas.md` |
+| 8 | `web/app.py`, `web/panel.py`, `web/comun.py` | 8 y Anexo B.3 |
+
+Atajos útiles:
+- **Ctrl + clic** sobre una función: va a donde está definida.
+- **Shift + F12**: muestra todos los lugares donde se usa.
+- **Ctrl + P**: abre un archivo por su nombre.
+- **Ctrl + Shift + F**: busca un texto en todo el proyecto (por ejemplo `pqrs_partes`).
+- **Ctrl + Shift + V** sobre un `.md`: lo muestra con formato.
+
+Para entender una función, mírala funcionando: deja corriendo `docker logs -f pqrs-worker` en una
+terminal, radica una PQRS en la web y lee en el log, línea por línea, lo que hace `procesar`.
