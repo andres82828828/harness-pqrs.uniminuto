@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block titulo %}{{ caso.radicado }}{% endblock %}
+{% block contenido %}
+<p class="ayuda">Número de radicado</p>
+<h1 class="radicado">{{ caso.radicado }}</h1>
+<p class="nota">Recibida el {{ caso.recibido_local.strftime('%d/%m/%Y a las %H:%M') }} · {{ (partes | map(attribute='tipo') | join(' + ')) if partes else caso.canal }}</p>
+
+<ol class="etapas">
+  <li class="hecha">Recibida y guardada en el data lake</li>
+  {% if caso.estado == 'en_proceso' %}
+  <li class="activa">Extrayendo el texto y clasificando… <span id="reloj">{{ caso.segundos_desde }}</span> s</li>
+  <li>Clasificada y enviada al área</li>
+  {% elif caso.estado == 'revision_manual' %}
+  <li class="hecha">Texto procesado</li>
+  <li class="alerta">Pasa a revisión manual: el sistema no pudo clasificarla con seguridad</li>
+  {% else %}
+  <li class="hecha">Texto extraído y clasificado</li>
+  <li class="hecha">Enviada a {{ caso.area_destino }}</li>
+  <li class="{{ 'hecha' if caso.estado in ('respondida', 'cerrada') else 'activa' if caso.estado == 'en_gestion' else '' }}">{{ 'Respondida' if caso.estado in ('respondida', 'cerrada') else 'En gestión por el área' if caso.estado == 'en_gestion' else 'Esperando respuesta del área' }}</li>
+  {% endif %}
+</ol>
+
+{% if caso.respuesta %}
+<section class="tarjeta respuesta">
+  <h2>Respuesta de {{ caso.area_destino }}</h2>
+  <p class="texto-leido">{{ caso.respuesta }}</p>
+  <p class="nota">{{ caso.respondida_local|fecha }}</p>
+</section>
+{% endif %}
+
+{% if caso.estado not in ('en_proceso', 'revision_manual') %}
+<section class="tarjeta">
+  <h2>Resultado</h2>
+  <dl class="datos">
+    <div><dt>Tipo</dt><dd>{{ caso.tipo|et }}</dd></div>
+    <div><dt>Tema</dt><dd>{{ caso.tema|et }}</dd></div>
+    <div><dt>Urgencia</dt><dd><span class="pastilla u-{{ caso.urgencia }}">{{ caso.urgencia|et }}</span></dd></div>
+    <div><dt>Área responsable</dt><dd>{{ caso.area_destino }}</dd></div>
+  </dl>
+</section>
+<section class="tarjeta">
+  <h2>Tiempos</h2>
+  <dl class="datos">
+    {% if caso.segundos_proceso is defined %}<div><dt>Desde que la enviaste</dt><dd>{{ caso.segundos_proceso }} s hasta quedar clasificada</dd></div>{% endif %}
+    {% for p in partes if p.segundos is not none %}
+    <div><dt>{{ {'texto': 'Leer el texto', 'audio': 'Transcribir el audio', 'foto': 'Leer la foto (OCR)'}[p.tipo] }}</dt><dd>{{ p.segundos }} s</dd></div>
+    {% endfor %}
+    {% if caso.segundos_clasificacion %}<div><dt>Clasificar con IA</dt><dd>{{ caso.segundos_clasificacion }} s</dd></div>{% endif %}
+    <div><dt>Plazo de respuesta</dt>
+      <dd>{% if caso.semaforo %}<span class="semaforo s-{{ caso.semaforo }}"></span>{% endif %}
+        {{ caso.dias_plazo }} día{{ 's' if caso.dias_plazo != 1 }} hábil{{ 'es' if caso.dias_plazo != 1 }}:
+        hasta el {{ caso.fecha_limite.strftime('%d/%m/%Y') }}</dd></div>
+  </dl>
+  <p class="nota">{% if caso.corregido %}Clasificación revisada por un funcionario.{% else %}Clasificación automática ({{ caso.clasificador }}). Un funcionario puede corregirla.{% endif %}</p>
+</section>
+{% endif %}
+
+{% set leidas = partes | selectattr('texto_extraido') | list %}
+{% if leidas %}
+<details class="tarjeta">
+  <summary>Lo que leyó el sistema</summary>
+  {% for p in leidas %}
+  <p class="nota">{{ {'texto': 'Tu texto', 'audio': 'Transcripción de tu audio', 'foto': 'Texto leído de tu foto'}[p.tipo] }}</p>
+  <p class="texto-leido">{{ p.texto_extraido }}</p>
+  {% endfor %}
+</details>
+{% endif %}
+
+<p><a class="boton secundario" href="/nueva">Radicar otra</a></p>
+
+{% if caso.estado == 'en_proceso' %}
+<script>
+  let s = {{ caso.segundos_desde }};
+  const reloj = document.getElementById('reloj');
+  setInterval(() => { reloj.textContent = ++s; }, 1000);
+  setInterval(async () => {
+    try {
+      const r = await fetch('/api/caso/{{ caso.radicado }}');
+      if (r.status === 401) { location.href = '/ingreso'; return; }
+      const d = await r.json();
+      if (d.estado && d.estado !== 'en_proceso') location.reload();
+    } catch (e) { /* sin conexion: se reintenta en el siguiente ciclo */ }
+  }, 2000);
+</script>
+{% endif %}
+{% endblock %}

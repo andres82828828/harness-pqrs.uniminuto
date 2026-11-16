@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block ancho %}auth{% endblock %}
+{% block titulo %}Código de acceso{% endblock %}
+{% block contenido %}
+<div class="auth-layout">
+  <section class="auth-brand">
+    <span class="chip-ia">Acceso seguro</span>
+    <h2>Un código, un ingreso.</h2>
+    <p>El código vence en {{ minutos }} minutos y solo sirve una vez.</p>
+  </section>
+  <section class="auth-panel">
+    <div class="auth-card">
+      <a href="/ingreso">← Cambiar correo</a>
+      <span class="eyebrow" style="margin-top:16px">Paso 2 de 2</span>
+      <h1>Escribe el código</h1>
+      <p class="ayuda">Lo enviamos a <strong>{{ correo }}</strong>. Vence en {{ minutos }} minutos.</p>
+      <form method="post">
+        <label for="codigo">Código de 6 dígitos</label>
+        <input id="codigo" name="codigo" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" required autofocus
+               autocomplete="one-time-code" class="codigo">
+        <button type="submit">Ingresar</button>
+      </form>
+      <p class="ayuda" style="text-align:center;margin-top:18px"><a href="/ingreso">Pedir otro código</a></p>
+    </div>
+  </section>
+</div>
+{% endblock %}

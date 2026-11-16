@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}PQRS{% endblock %} · PQRS Inteligente</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap">
+  <link rel="stylesheet" href="/static/estilos.css">
+</head>
+<body>
+  <header class="barra">
+    <a class="marca" href="/"><span class="marca-u" aria-hidden="true">U<i></i></span><span><b>UNIMINUTO</b><small>PQRS Inteligente</small></span></a>
+    {% if usuario %}
+    <nav>
+      <a href="/nueva">Nueva</a>
+      <a href="/mis-casos">Mis casos</a>
+      {% if usuario.rol in ('admin', 'funcionario') %}<a href="/panel">Panel</a>{% endif %}
+      <form method="post" action="/salir"><button class="enlace">Salir</button></form>
+    </nav>
+    {% endif %}
+  </header>
+  <main class="{% block ancho %}{% endblock %}">
+    {% if error %}<p class="aviso error" role="alert">{{ error }}</p>{% endif %}
+    {% block contenido %}{% endblock %}
+  </main>
+  {% if usuario %}<footer>Sesión: {{ usuario.correo }}</footer>{% endif %}
+</body>
+</html>

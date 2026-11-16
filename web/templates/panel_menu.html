@@ -1,0 +1,9 @@
+<nav class="menu-panel" aria-label="Panel">
+  <a href="/panel" {{ 'aria-current=page' if seccion == 'bandeja' }}>Bandeja</a>
+  <a href="/panel/tablero" {{ 'aria-current=page' if seccion == 'tablero' }}>Tablero</a>
+  {% if usuario.rol == 'admin' %}
+  <a href="/panel/reportes" {{ 'aria-current=page' if seccion == 'reportes' }}>Reportes</a>
+  <a href="/panel/usuarios" {{ 'aria-current=page' if seccion == 'usuarios' }}>Usuarios</a>
+  {% endif %}
+</nav>
+<p class="nota rol">{{ usuario.rol|et }}{% if usuario.area %} · {{ usuario.area }}{% endif %}</p>

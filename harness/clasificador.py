@@ -53,6 +53,18 @@ def _escalar_urgencia(texto, urgencia):
 POR_DEFECTO = {"tipo": "peticion", "tema": "servicios", "urgencia": "media"}
 
 
+# Etiquetas que pone el harness cuando una PQRS llega con varias partes.
+ETIQUETAS_PARTES = ("[Texto escrito]", "[Transcripción del audio]", "[Texto de la foto]")
+
+
+def _nota_partes(texto):
+    """Solo para PQRS de varias partes: asi el prompt de los casos de un canal no cambia."""
+    if not any(e in texto for e in ETIQUETAS_PARTES):
+        return ""
+    return ("El mensaje llega en varias partes (texto escrito, transcripción de un audio y/o texto leído "
+            "de una foto). Todas hablan del MISMO caso: clasifícalo una sola vez, como un todo.\n\n")
+
+
 def _prompt(texto):
     return f"""Eres un asistente que clasifica PQRS de una universidad en Colombia.
 Responde SOLO con un JSON de la forma {{"tipo": "...", "tema": "...", "razon": "...", "urgencia": "..."}}.
@@ -93,9 +105,9 @@ Mensaje: "Recomiendo ofrecer cursos de inglés los sábados."
 Mensaje: "El aire de la sala de estudio no funciona hace semanas y hace mucho calor."
 {{"tipo": "reclamo", "tema": "infraestructura", "razon": "es una falla que molesta pero no hay riesgo ni plazo", "urgencia": "media"}}
 
-Ahora clasifica este mensaje:
+{_nota_partes(texto)}Ahora clasifica este mensaje:
 \"\"\"
-{texto[:3000]}
+{texto[:6000]}
 \"\"\"
 JSON:"""
 

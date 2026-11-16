@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block ancho %}ancho{% endblock %}
+{% block titulo %}Bandeja{% endblock %}
+{% block contenido %}
+{% include "panel_menu.html" %}
+<h1>Bandeja{% if usuario.rol == 'funcionario' %} · {{ usuario.area or 'sin área' }}{% endif %}</h1>
+{% if usuario.rol == 'funcionario' and not usuario.area %}
+<p class="aviso error">Aún no tienes un área asignada. Pídele a un administrador que te la asigne.</p>
+{% endif %}
+<form method="get" class="filtros">
+  <label>Estado
+    <select name="estado">
+      <option value="">Todos</option>
+      <option value="abiertos" {{ 'selected' if filtro.estado == 'abiertos' }}>Abiertos</option>
+      {% for k, v in ETIQUETA_ESTADO.items() %}<option value="{{ k }}" {{ 'selected' if filtro.estado == k }}>{{ v }}</option>{% endfor %}
+    </select></label>
+  <label>Urgencia
+    <select name="urgencia">
+      <option value="">Todas</option>
+      {% for k in reglas.URGENCIAS %}<option value="{{ k }}" {{ 'selected' if filtro.urgencia == k }}>{{ k|et }}</option>{% endfor %}
+    </select></label>
+  {% if usuario.rol == 'admin' %}
+  <label>Área
+    <select name="area">
+      <option value="">Todas</option>
+      {% for a in reglas.AREAS %}<option {{ 'selected' if filtro.area == a }}>{{ a }}</option>{% endfor %}
+    </select></label>
+  {% endif %}
+  <label>Radicado <input name="q" value="{{ filtro.q }}" placeholder="000012"></label>
+  <button type="submit">Filtrar</button>
+</form>
+<p class="nota">{{ casos|length }} caso{{ 's' if casos|length != 1 }}</p>
+<ul class="lista">
+  {% for c in casos %}
+  <li><a href="/panel/caso/{{ c.radicado }}">
+    <span class="fila"><strong>{{ c.radicado }}</strong><span class="etiqueta e-{{ c.estado }}">{{ ETIQUETA_ESTADO[c.estado] }}</span></span>
+    {% if c.tipo %}
+    <span>{{ c.tipo|et }} · {{ c.tema|et }} · <span class="pastilla u-{{ c.urgencia }}">{{ c.urgencia|et }}</span>{% if usuario.rol == 'admin' %} · {{ c.area_destino }}{% endif %}{% if c.corregido %} · <em>corregida</em>{% endif %}</span>
+    {% endif %}
+    <span class="nota">
+      {% if c.semaforo %}<span class="semaforo s-{{ c.semaforo }}"></span>vence {{ c.fecha_limite|fecha('%d/%m/%Y') }} · {% endif %}
+      {% if c.estado in ('respondida', 'cerrada') %}{{ 'a tiempo' if c.a_tiempo else 'fuera de plazo' }} · {% endif %}
+      {{ c.canal }} · {{ c.recibido_local|fecha }}
+    </span>
+  </a></li>
+  {% else %}
+  <li class="vacio">No hay casos con estos filtros.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

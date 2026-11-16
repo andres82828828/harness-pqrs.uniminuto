@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block ancho %}auth{% endblock %}
+{% block titulo %}Ingreso{% endblock %}
+{% block contenido %}
+<div class="auth-layout">
+  <section class="auth-brand">
+    <span class="chip-ia">Clasificación con inteligencia artificial</span>
+    <h2>Tu voz llega al área correcta, más rápido.</h2>
+    <p>Radica peticiones, quejas, reclamos y sugerencias por texto, audio o foto. El sistema las clasifica y las envía al área responsable.</p>
+  </section>
+  <section class="auth-panel">
+    <div class="auth-card">
+      <span class="eyebrow">Paso 1 de 2</span>
+      <div class="auth-icono" aria-hidden="true">@</div>
+      <h1>Ingresa con tu correo institucional</h1>
+      <p class="ayuda">Te enviaremos un código de acceso de 6 dígitos.</p>
+      <form method="post">
+        <label for="correo">Correo institucional</label>
+        <input id="correo" name="correo" type="email" required autofocus autocomplete="email"
+               placeholder="nombre@{{ dominios[0] }}" value="{{ correo or '' }}">
+        <button type="submit">Enviar código</button>
+      </form>
+      <div class="nota-segura"><span><b>Solo comunidad UNIMINUTO</b>Se aceptan correos @{{ dominios|join(', @') }}.</span></div>
+    </div>
+  </section>
+</div>
+{% endblock %}

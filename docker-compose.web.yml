@@ -1,0 +1,85 @@
+# Capa de usuario: aplicacion web, correo local y tunel de acceso.
+# Se usa junto con el compose principal:
+#   docker compose -f docker-compose.yml -f docker-compose.web.yml up -d
+services:
+  # ---------- APLICACION WEB (lo que ve el usuario) ----------
+  web:
+    build: ./web
+    container_name: pqrs-web
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      S3_ENDPOINT: http://rustfs:9000
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      DOMINIOS_PERMITIDOS: ${DOMINIOS_PERMITIDOS:-uniminuto.edu.co}
+      CORREOS_ADMIN: ${CORREOS_ADMIN:-}
+      MAX_RADICACIONES_DIA: ${MAX_RADICACIONES_DIA:-5}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-pqrs@uniminuto.edu.co}
+      SECRET_KEY: ${SECRET_KEY:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      TUNNEL_METRICS: http://tunnel:2000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+      mailpit:
+        condition: service_started
+
+  # ---------- WORKER (el harness en ciclo) ----------
+  # Clasifica sola cada PQRS que la web guarda en el data lake.
+  worker:
+    build: ./harness
+    container_name: pqrs-worker
+    command: ["python", "main.py", "--ciclo", "3"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+      ollama:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PRECARGAR_WHISPER: "1"   # carga Whisper al arrancar: el primer audio no espera
+      S3_ENDPOINT: http://rustfs:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: pqrs
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CLASSIFIER: ${CLASSIFIER:-ollama}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      WHISPER_MODEL: small
+      URGENCIA_REGLAS: ${URGENCIA_REGLAS:-1}
+    volumes:
+      - whisper_cache:/root/.cache
+
+  # ---------- CORREO LOCAL (buzon de prueba para el codigo de acceso) ----------
+  # Bandeja en http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: pqrs-correo
+    ports:
+      - "8025:8025"
+
+  # ---------- TUNEL (enlace publico HTTPS para celular o cualquier PC) ----------
+  # Necesita internet. El enlace se ve en http://localhost:8000/acceso
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: pqrs-tunel
+    command: tunnel --no-autoupdate --url http://web:8000 --metrics 0.0.0.0:2000
+    depends_on:
+      - web

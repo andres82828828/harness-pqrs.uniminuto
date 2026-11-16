@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block ancho %}ancho{% endblock %}
+{% block titulo %}Tablero{% endblock %}
+{% macro barras(titulo, filas, modo='et') %}
+<section class="tarjeta">
+  <h2>{{ titulo }}</h2>
+  {% for f in filas %}
+  <div class="barra-fila">
+    <span class="barra-nombre">{% if modo == 'estado' %}{{ ETIQUETA_ESTADO[f.clave] }}{% elif modo == 'tal_cual' %}{{ f.clave }}{% else %}{{ f.clave|et }}{% endif %}</span>
+    <span class="barra-pista"><span class="barra-valor" style="width: {{ f.pct }}%"></span></span>
+    <span class="barra-n">{{ f.n }}</span>
+  </div>
+  {% else %}<p class="nota">Sin datos.</p>{% endfor %}
+</section>
+{% endmacro %}
+{% block contenido %}
+{% include "panel_menu.html" %}
+<h1>Tablero{% if usuario.rol == 'funcionario' %} · {{ usuario.area }}{% endif %}</h1>
+<div class="cifras">
+  <div class="cifra"><span class="n">{{ d.total }}</span><span>casos</span></div>
+  <div class="cifra"><span class="n">{{ d.abiertos }}</span><span>abiertos</span></div>
+  <div class="cifra {{ 'alerta' if d.vencidos }}"><span class="n">{{ d.vencidos }}</span><span>vencidos</span></div>
+  <div class="cifra"><span class="n">{{ d.revision }}</span><span>en revisión manual</span></div>
+  <div class="cifra"><span class="n">{{ d.a_tiempo ~ ' %' if d.a_tiempo is not none else '—' }}</span><span>respondidos a tiempo</span></div>
+  <div class="cifra"><span class="n">{{ d.tiempo_medio ~ ' s' if d.tiempo_medio is not none else '—' }}</span><span>clasificación promedio</span></div>
+  <div class="cifra"><span class="n">{{ d.corregidos ~ ' %' if d.corregidos is not none else '—' }}</span><span>corregidos por un funcionario</span></div>
+</div>
+<div class="columnas">
+  {{ barras('Por estado', d.por_estado, 'estado') }}
+  {{ barras('Por urgencia', d.por_urgencia) }}
+  {{ barras('Por tipo', d.por_tipo) }}
+  {{ barras('Por canal', d.por_canal) }}
+  {{ barras('Por tema', d.por_tema) }}
+  {% if usuario.rol == 'admin' %}{{ barras('Por área', d.por_area, 'tal_cual') }}{% endif %}
+</div>
+<p class="nota">El porcentaje de casos corregidos sirve como medida de cuánto se equivoca el modelo en la práctica.</p>
+{% endblock %}

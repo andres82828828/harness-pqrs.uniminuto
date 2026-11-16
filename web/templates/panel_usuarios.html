@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block ancho %}ancho{% endblock %}
+{% block titulo %}Usuarios{% endblock %}
+{% block contenido %}
+{% include "panel_menu.html" %}
+<h1>Usuarios y roles</h1>
+<form method="post" class="tarjeta filtros">
+  <label>Correo institucional <input name="correo" type="email" required placeholder="funcionario@uniminuto.edu.co"></label>
+  <label>Rol <select name="rol">{% for r in reglas.ROLES %}<option value="{{ r }}" {{ 'selected' if r == 'funcionario' }}>{{ r|et }}</option>{% endfor %}</select></label>
+  <label>Área (funcionarios) <select name="area"><option value="">—</option>{% for a in reglas.AREAS %}<option>{{ a }}</option>{% endfor %}</select></label>
+  <button type="submit">Guardar</button>
+</form>
+<p class="nota">Los administradores también se definen con <code>CORREOS_ADMIN</code> en el <code>.env</code>. El rol se puede asignar antes de que la persona ingrese por primera vez.</p>
+<ul class="lista">
+  {% for x in usuarios %}
+  <li><div class="item">
+    <strong>{{ x.correo }}</strong>
+    <span>{{ x.rol|et }}{% if x.area %} · {{ x.area }}{% endif %} · {{ x.radicadas }} radicada{{ 's' if x.radicadas != 1 }}</span>
+  </div></li>
+  {% endfor %}
+</ul>
+{% endblock %}

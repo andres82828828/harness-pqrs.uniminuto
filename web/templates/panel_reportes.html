@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block ancho %}ancho{% endblock %}
+{% block titulo %}Reportes{% endblock %}
+{% block contenido %}
+{% include "panel_menu.html" %}
+<h1>Reportes mensuales</h1>
+<p class="ayuda">Los genera el harness y quedan en el bucket <code>pqrs-reportes</code> del data lake.</p>
+<ul class="lista">
+  {% for o in objetos %}
+  <li><a href="/panel/reportes/descargar?clave={{ o.Key|urlencode }}">
+    <strong>{{ o.Key.split('/')[-1] }}</strong>
+    <span class="nota">{{ (o.Size / 1024)|round(1) }} KB · {{ o.LastModified.strftime('%d/%m/%Y %H:%M') }} UTC</span>
+  </a></li>
+  {% else %}
+  <li class="vacio">Todavía no hay reportes. Se generan con <code>docker compose run --rm harness python reporte.py</code>.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

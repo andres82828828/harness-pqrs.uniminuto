@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block titulo %}Nueva PQRS{% endblock %}
+{% block contenido %}
+<h1>Nueva PQRS</h1>
+<p class="ayuda">Escribe tu petición, queja, reclamo o sugerencia. Si quieres, agrega un audio o la foto del formulario: todo se envía junto como una sola PQRS.</p>
+
+<form method="post" enctype="multipart/form-data" id="formulario" class="composer-form">
+  <input type="file" name="foto" id="foto" accept="image/png,image/jpeg" hidden>
+  <input type="file" name="audio" id="audio" accept="audio/*" hidden>
+  <input type="file" id="adjunto" accept="image/png,image/jpeg,audio/*" hidden>
+
+  <div class="composer" id="composer">
+    <label for="texto" class="sr-only">Tu PQRS</label>
+    <textarea id="texto" name="texto" rows="3" maxlength="{{ limites.texto.max }}"
+              placeholder="Escribe aquí qué pasó, cuándo y qué necesitas…">{{ texto or '' }}</textarea>
+
+    <div class="adjunto-chip" id="chip-foto" hidden>
+      <img id="foto-img" alt="Vista previa de la foto adjunta">
+      <span id="foto-nombre"></span>
+      <button type="button" class="icono-btn" data-quitar="foto" aria-label="Quitar la foto">✕</button>
+    </div>
+    <div class="adjunto-chip" id="chip-audio" hidden>
+      <audio id="audio-player" controls></audio>
+      <span id="audio-nombre"></span>
+      <button type="button" class="icono-btn" data-quitar="audio" aria-label="Quitar el audio">✕</button>
+    </div>
+
+    <div class="grabando" id="grabando" hidden>
+      <span class="punto-rojo" aria-hidden="true"></span>
+      <span>Grabando <b id="reloj">0:00</b> / 2:00</span>
+      <button type="button" class="icono-btn detener" id="detener">Detener</button>
+    </div>
+
+    <div class="composer-barra">
+      <button type="button" class="icono-btn" id="btn-adjuntar" aria-label="Adjuntar foto o audio" title="Adjuntar foto o audio">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button type="button" class="icono-btn" id="btn-microfono" aria-label="Grabar audio" title="Grabar audio">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      </button>
+      <span class="composer-contador"><span id="conteo">0</span> / {{ limites.texto.max }}</span>
+      <button type="submit" class="enviar" id="enviar" aria-label="Radicar" title="Radicar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+      </button>
+    </div>
+  </div>
+  <p class="nota composer-nota">Puedes enviar texto, un audio (máximo 2 minutos) y una foto PNG o JPG (máximo {{ limites.foto.max_bytes // 1048576 }} MB), juntos o por separado. Si solo escribes, usa al menos {{ limites.texto.min }} caracteres. La clasificación la hace una IA y un funcionario puede corregirla.</p>
+
+  <label class="casilla">
+    <input type="checkbox" name="acepta" value="si" required>
+    <span>Autorizo el tratamiento de mis datos personales para gestionar esta solicitud (Ley 1581 de 2012).</span>
+  </label>
+</form>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const texto = $('texto'), conteo = $('conteo');
+  const entradas = { foto: $('foto'), audio: $('audio') };
+  const MAX_SEG = 120, MIN_TEXTO = {{ limites.texto.min }};
+  let grabadora = null, flujo = null, temporizador = null;
+
+  const contar = () => conteo.textContent = texto.value.trim().length;
+  const ajustar = () => { texto.style.height = 'auto'; texto.style.height = texto.scrollHeight + 'px'; };
+  texto.addEventListener('input', () => { contar(); ajustar(); });
+  contar();
+
+  // Una foto y un audio como maximo; el texto siempre se puede escribir.
+  function poner(tipo, archivo, etiqueta) {
+    const dt = new DataTransfer(); dt.items.add(archivo); entradas[tipo].files = dt.files;
+    const url = URL.createObjectURL(archivo);
+    if (tipo === 'foto') $('foto-img').src = url; else $('audio-player').src = url;
+    $(tipo + '-nombre').textContent = etiqueta;
+    $('chip-' + tipo).hidden = false;
+  }
+  function quitar(tipo) {
+    entradas[tipo].value = '';
+    $('chip-' + tipo).hidden = true;
+    if (tipo === 'foto') $('foto-img').removeAttribute('src'); else $('audio-player').removeAttribute('src');
+  }
+  document.querySelectorAll('[data-quitar]').forEach(b => b.addEventListener('click', () => quitar(b.dataset.quitar)));
+
+  $('btn-adjuntar').addEventListener('click', () => $('adjunto').click());
+  $('adjunto').addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return;
+    if (f.type.startsWith('image/')) poner('foto', f, f.name);
+    else if (f.type.startsWith('audio/')) poner('audio', f, f.name);
+    e.target.value = '';
+  });
+  entradas.audio.addEventListener('change', () => { const f = entradas.audio.files[0]; if (f) poner('audio', f, f.name); });
+
+  // Grabar desde el navegador. Sin HTTPS (p. ej. por la IP del portatil) el navegador no
+  // permite el microfono: el boton abre el selector de archivos de audio.
+  const puedeGrabar = window.isSecureContext && navigator.mediaDevices && window.MediaRecorder;
+  $('btn-microfono').addEventListener('click', async () => {
+    if (grabadora && grabadora.state === 'recording') return;
+    if (!puedeGrabar) { entradas.audio.click(); return; }
+    try { flujo = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) { alert('No se pudo usar el micrófono. Revisa el permiso del navegador.'); return; }
+    const trozos = [];
+    grabadora = new MediaRecorder(flujo);
+    grabadora.ondataavailable = e => e.data.size && trozos.push(e.data);
+    grabadora.onstop = () => {
+      flujo.getTracks().forEach(t => t.stop()); clearInterval(temporizador);
+      $('grabando').hidden = true; $('composer').classList.remove('en-grabacion');
+      const tipo = grabadora.mimeType || 'audio/webm';
+      const ext = tipo.includes('ogg') ? 'ogg' : tipo.includes('mp4') ? 'm4a' : 'webm';
+      poner('audio', new File(trozos, `grabacion.${ext}`, { type: tipo }), `Audio grabado · ${$('reloj').textContent}`);
+    };
+    grabadora.start();
+    let s = 0; $('reloj').textContent = '0:00';
+    $('grabando').hidden = false; $('composer').classList.add('en-grabacion');
+    temporizador = setInterval(() => {
+      s++; $('reloj').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      if (s >= MAX_SEG) grabadora.stop();
+    }, 1000);
+  });
+  $('detener').addEventListener('click', () => grabadora && grabadora.state === 'recording' && grabadora.stop());
+
+  texto.addEventListener('keydown', e => {  // Ctrl+Enter radica, como en un chat
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('formulario').requestSubmit();
+  });
+  $('formulario').addEventListener('submit', e => {
+    if (grabadora && grabadora.state === 'recording') { e.preventDefault(); alert('Detén la grabación antes de radicar.'); return; }
+    const hayAdjunto = entradas.foto.files.length || entradas.audio.files.length;
+    const largo = texto.value.trim().length;
+    if (!hayAdjunto && largo < MIN_TEXTO) {
+      e.preventDefault();
+      alert(largo ? `Escribe al menos ${MIN_TEXTO} caracteres, o agrega un audio o una foto.` : 'Escribe tu PQRS, graba un audio o adjunta una foto.');
+      texto.focus(); return;
+    }
+    const b = $('enviar'); b.disabled = true; b.classList.add('cargando');
+  });
+})();
+</script>
+{% endblock %}

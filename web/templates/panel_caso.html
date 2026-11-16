@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block ancho %}ancho{% endblock %}
+{% block titulo %}{{ caso.radicado }}{% endblock %}
+{% block contenido %}
+{% include "panel_menu.html" %}
+<p><a href="/panel">← Volver a la bandeja</a></p>
+<div class="fila"><h1 class="radicado">{{ caso.radicado }}</h1><span class="etiqueta e-{{ caso.estado }}">{{ ETIQUETA_ESTADO[caso.estado] }}</span></div>
+<p class="nota">{{ caso.correo }} · {{ caso.canal }} · recibida {{ caso.recibido_local|fecha }}</p>
+
+<div class="columnas">
+<div>
+  <section class="tarjeta">
+    <h2>Lo que envió el usuario</h2>
+    {% for p in partes %}
+    <div class="parte">
+      <div class="fila">
+        <h3>{{ {'texto': 'Texto escrito', 'audio': 'Audio', 'foto': 'Foto'}[p.tipo] }}</h3>
+        {% if p.segundos is not none %}<span class="nota">{{ 'leído' if p.tipo == 'texto' else 'transcrito' if p.tipo == 'audio' else 'leído con OCR' }} en {{ p.segundos }} s</span>{% endif %}
+      </div>
+      {% if p.tipo == 'foto' %}
+      <img class="original" src="/panel/archivo/{{ caso.radicado }}/foto" alt="Foto del formulario enviada por el usuario">
+      {% elif p.tipo == 'audio' %}
+      <audio controls preload="none" src="/panel/archivo/{{ caso.radicado }}/audio"></audio>
+      {% endif %}
+      {% if p.error %}
+      <p class="aviso error">No se pudo extraer el texto: {{ p.error }}</p>
+      {% elif p.texto_extraido %}
+      {% if p.tipo != 'texto' %}<p class="nota">Texto extraído por el sistema</p>{% endif %}
+      <p class="texto-leido">{{ p.texto_extraido }}</p>
+      {% else %}
+      <p class="nota">El harness todavía no ha procesado esta parte.</p>
+      {% endif %}
+      <p class="nota"><a href="/panel/archivo/{{ caso.radicado }}/{{ p.tipo }}" target="_blank" rel="noopener">Abrir el original del data lake</a></p>
+    </div>
+    {% endfor %}
+  </section>
+
+  <section class="tarjeta">
+    <h2>Historial</h2>
+    <ol class="historial">
+      {% for h in historial %}
+      <li><strong>{{ h.accion }}</strong> <span class="nota">{{ h.cuando|fecha }} · {{ h.correo or 'sistema' }}</span>
+        {% if h.detalle %}<br><span class="detalle">{{ h.detalle }}</span>{% endif %}</li>
+      {% endfor %}
+    </ol>
+  </section>
+</div>
+
+<div>
+  <section class="tarjeta">
+    <h2>Clasificación</h2>
+    <dl class="datos">
+      <div><dt>Tipo</dt><dd>{{ caso.tipo|et if caso.tipo else '—' }}</dd></div>
+      <div><dt>Tema</dt><dd>{{ caso.tema|et if caso.tema else '—' }}</dd></div>
+      <div><dt>Urgencia</dt><dd>{% if caso.urgencia %}<span class="pastilla u-{{ caso.urgencia }}">{{ caso.urgencia|et }}</span>{% else %}—{% endif %}</dd></div>
+      <div><dt>Área</dt><dd>{{ caso.area_destino or '—' }}</dd></div>
+      {% if caso.fecha_limite %}
+      <div><dt>Plazo</dt><dd>{% if caso.semaforo %}<span class="semaforo s-{{ caso.semaforo }}"></span>{% endif %}hasta el {{ caso.fecha_limite|fecha('%d/%m/%Y') }}</dd></div>
+      {% endif %}
+      {% if caso.segundos_proceso is defined %}
+      <div><dt>Tiempo del sistema</dt><dd>{{ caso.segundos_proceso }} s</dd></div>
+      {% endif %}
+    </dl>
+    {% if caso.caso_id %}
+    <p class="nota">Modelo ({{ caso.clasificador }}): {{ caso.tipo_modelo|et if caso.tipo_modelo else '—' }} / {{ caso.tema_modelo|et if caso.tema_modelo else '—' }} / {{ caso.urgencia_modelo|et if caso.urgencia_modelo else '—' }}{% if caso.corregido %} · <strong>corregida por un funcionario</strong>{% endif %}</p>
+    {% endif %}
+
+    {% if caso.estado != 'cerrada' %}
+    <details {{ 'open' if caso.estado == 'revision_manual' }}>
+      <summary>Corregir clasificación</summary>
+      <form method="post" action="/panel/caso/{{ caso.radicado }}/clasificar" class="formulario-corto">
+        <label>Tipo<select name="tipo" required>
+          {% for k in reglas.TIPOS %}<option value="{{ k }}" {{ 'selected' if caso.tipo == k }}>{{ k|et }}</option>{% endfor %}</select></label>
+        <label>Tema<select name="tema" required>
+          {% for k in reglas.TEMAS %}<option value="{{ k }}" {{ 'selected' if caso.tema == k }}>{{ k|et }} → {{ reglas.AREA_POR_TEMA[k] }}</option>{% endfor %}</select></label>
+        <label>Urgencia<select name="urgencia" required>
+          {% for k in reglas.URGENCIAS %}<option value="{{ k }}" {{ 'selected' if caso.urgencia == k }}>{{ k|et }}</option>{% endfor %}</select></label>
+        <label>Motivo (opcional)<input name="motivo" maxlength="300"></label>
+        <button type="submit" class="boton-secundario">Guardar clasificación</button>
+      </form>
+    </details>
+    {% endif %}
+  </section>
+
+  <section class="tarjeta">
+    <h2>Gestión</h2>
+    {% if caso.respuesta %}
+    <p class="nota">Respuesta enviada {{ caso.respondida_local|fecha }}{% if caso.a_tiempo is defined %} · {{ 'a tiempo' if caso.a_tiempo else 'fuera de plazo' }}{% endif %}</p>
+    <p class="texto-leido">{{ caso.respuesta }}</p>
+    {% endif %}
+    {% if caso.estado in ('en_proceso', 'revision_manual') %}
+    <p class="nota">Primero hay que clasificar el caso.</p>
+    {% elif caso.estado == 'cerrada' %}
+    <p class="nota">El caso está cerrado.</p>
+    {% else %}
+    <form method="post" action="/panel/caso/{{ caso.radicado }}/estado" class="formulario-corto">
+      <label>Nuevo estado<select name="estado" id="nuevo-estado">
+        {% if caso.estado == 'clasificada' %}<option value="en_gestion">En gestión</option>{% endif %}
+        <option value="respondida" {{ 'selected' if caso.estado == 'en_gestion' }}>Respondida</option>
+        {% if caso.estado == 'respondida' %}<option value="cerrada" selected>Cerrada</option>{% endif %}
+      </select></label>
+      <label id="campo-respuesta">Respuesta al usuario
+        <textarea name="respuesta" rows="5" placeholder="Se le enviará por correo y la verá en Mis casos.">{{ respuesta_borrador or '' }}</textarea></label>
+      <button type="submit">Guardar</button>
+    </form>
+    <script>
+      const sel = document.getElementById('nuevo-estado'), campo = document.getElementById('campo-respuesta');
+      const ver = () => campo.hidden = sel.value !== 'respondida';
+      sel.addEventListener('change', ver); ver();
+    </script>
+    {% endif %}
+  </section>
+</div>
+</div>
+{% endblock %}

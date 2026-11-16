@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block titulo %}Mis casos{% endblock %}
+{% block contenido %}
+<h1>Mis casos</h1>
+{% if not casos %}
+<p class="ayuda">Todavía no has radicado ninguna PQRS.</p>
+<p><a class="boton" href="/nueva">Radicar la primera</a></p>
+{% endif %}
+<ul class="lista">
+  {% for c in casos %}
+  <li>
+    <a href="/caso/{{ c.radicado }}">
+      <strong>{{ c.radicado }}</strong>
+      <span class="nota">{{ c.recibido_local.strftime('%d/%m/%Y %H:%M') }} · {{ c.canal }}</span>
+      <span class="etiqueta e-{{ c.estado }}">{{ ETIQUETA_ESTADO[c.estado] }}</span>
+      {% if c.tipo %}
+      <span>{% if c.semaforo %}<span class="semaforo s-{{ c.semaforo }}"></span>{% endif %}{{ c.tipo|et }} · {{ c.tema|et }} ·
+        <span class="pastilla u-{{ c.urgencia }}">{{ c.urgencia|et }}</span></span>
+      {% endif %}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endblock %}

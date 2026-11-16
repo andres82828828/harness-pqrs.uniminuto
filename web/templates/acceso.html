@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block titulo %}Acceso{% endblock %}
+{% block contenido %}
+<h1>Abrir en otro dispositivo</h1>
+{% if url %}
+<p class="ayuda">Escanea el código con la cámara del celular o escribe el enlace en cualquier navegador.</p>
+<div class="qr">{{ qr|safe }}</div>
+<p class="enlace-publico"><a href="{{ url }}">{{ url }}</a></p>
+<p class="nota">El enlace cambia cada vez que se reinicia el túnel.</p>
+{% else %}
+<p class="aviso error">El túnel todavía no reporta un enlace. Revisa que el equipo tenga internet y recarga esta página en unos segundos.</p>
+<p class="nota">Respaldo sin internet: conecta el celular a la misma red WiFi y abre <code>http://IP-del-portátil:8000</code>.</p>
+{% endif %}
+{% endblock %}
