@@ -9,6 +9,7 @@ C. la estructura de Docker · D. cómo estudiar el código en VS Code ·
 E. operación: administradores, correo y acceso al data lake.
 
 Si algo se rompe (o el profesor borra código en la sustentación): [`reparacion.md`](reparacion.md).
+Comandos para encender y apagar todo: [`comandos_powershell.md`](comandos_powershell.md).
 
 Archivos que se mencionan: todos están en este repositorio. Arquitectura y reglas de negocio:
 [`arquitectura_y_reglas.md`](arquitectura_y_reglas.md).
