@@ -30,8 +30,8 @@ envía al área responsable. Todo corre en un solo equipo con Docker, sin servic
 
 1. Clona el repositorio y entra a la carpeta:
    ```
-   git clone https://github.com/vickys14/pqrs-inteligente.git
-   cd pqrs-inteligente
+   git clone https://github.com/andres82828828/harness-pqrs.uniminuto.git
+   cd harness-pqrs.uniminuto
    ```
 2. Crea tu `.env` a partir del ejemplo y cambia las contraseñas:
    ```
@@ -105,13 +105,13 @@ navegador solo funciona por HTTPS (el túnel) o en `localhost`.
 `acceso/index.html` se publica en la rama `gh-pages` y redirige al enlace vigente del túnel:
 
 ```
-python scripts/publicar_enlace.py
+python scripts/publicar_enlace.py --repo https://github.com/andres82828828/harness-pqrs.uniminuto.git
 ```
 
 El script lee el enlace de la web local (`/api/enlace`), lo guarda en `enlace.json` de la rama
 `gh-pages` y lo sube. Hay que ejecutarlo cada vez que se reinicie el túnel, con permiso de escritura
 en el repositorio. Una sola vez hay que activar GitHub Pages en *Settings → Pages → Deploy from a
-branch → gh-pages / (root)*. La dirección queda `https://<usuario>.github.io/pqrs-inteligente/`.
+branch → gh-pages / (root)*. La dirección queda https://andres82828828.github.io/harness-pqrs.uniminuto/
 
 Respaldo sin internet: celular en la misma red WiFi abriendo `http://IP-del-portátil:8000`
 (sin micrófono; el botón abre el selector de archivos de audio).
