@@ -20,7 +20,7 @@ services:
       SMTP_PORT: ${SMTP_PORT:-1025}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-pqrs@uniminuto.edu.co}
+      SMTP_FROM: ${SMTP_FROM:-}   # vacio = la propia cuenta SMTP_USER (Gmail lo exige)
       SECRET_KEY: ${SECRET_KEY:-}
       PUBLIC_URL: ${PUBLIC_URL:-}
       TUNNEL_METRICS: http://tunnel:2000

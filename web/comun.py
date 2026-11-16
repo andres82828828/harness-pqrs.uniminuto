@@ -46,19 +46,47 @@ def s3():
     )
 
 
-def enviar_correo(destino: str, asunto: str, cuerpo: str):
+BUZON_LOCAL = (os.environ.get("BUZON_LOCAL_HOST", "mailpit"), int(os.environ.get("BUZON_LOCAL_PUERTO", "1025")))
+
+
+def _mensaje(remitente: str, destino: str, asunto: str, cuerpo: str):
     msg = EmailMessage()
     msg["Subject"] = asunto
-    msg["From"] = os.environ.get("SMTP_FROM", "pqrs@uniminuto.edu.co")
+    msg["From"] = f"PQRS Inteligente <{remitente}>"
     msg["To"] = destino
     msg.set_content(cuerpo)
-    host = os.environ.get("SMTP_HOST", "mailpit")
-    puerto = int(os.environ.get("SMTP_PORT", "1025"))
-    with smtplib.SMTP(host, puerto, timeout=10) as smtp:
-        if os.environ.get("SMTP_USER"):
-            smtp.starttls()
-            smtp.login(os.environ["SMTP_USER"], os.environ.get("SMTP_PASSWORD", ""))
-        smtp.send_message(msg)
+    return msg
+
+
+def correo_real_configurado() -> bool:
+    """Hay correo real solo si estan la cuenta y su contrasena de aplicacion."""
+    return bool(os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD"))
+
+
+def enviar_correo(destino: str, asunto: str, cuerpo: str) -> str:
+    """Envia un correo y devuelve por donde salio: "real" o "buzon_local".
+
+    Con SMTP_USER en el .env usa el correo real (p. ej. Gmail con contrasena de aplicacion).
+    Si ese envio falla, o si no hay correo real configurado, lo deja en el buzon local de
+    prueba (Mailpit, http://localhost:8025) para que nadie quede bloqueado sin su codigo.
+    Si tambien falla el buzon local, lanza la excepcion.
+    """
+    if correo_real_configurado():
+        usuario = os.environ["SMTP_USER"]
+        try:
+            with smtplib.SMTP(os.environ.get("SMTP_HOST", "smtp.gmail.com"),
+                              int(os.environ.get("SMTP_PORT", "587")), timeout=15) as smtp:
+                smtp.starttls()
+                smtp.login(usuario, os.environ.get("SMTP_PASSWORD", ""))
+                # Gmail exige que el remitente sea la propia cuenta
+                smtp.send_message(_mensaje(os.environ.get("SMTP_FROM") or usuario, destino, asunto, cuerpo))
+            return "real"
+        except Exception as e:  # se registra sin datos de la cuenta y se usa el respaldo
+            print(f"AVISO: el correo real fallo ({type(e).__name__}: {str(e)[:120]}); "
+                  f"se usa el buzon local de respaldo", flush=True)
+    with smtplib.SMTP(*BUZON_LOCAL, timeout=10) as smtp:
+        smtp.send_message(_mensaje(os.environ.get("SMTP_FROM_LOCAL", "pqrs@uniminuto.edu.co"), destino, asunto, cuerpo))
+    return "buzon_local"
 
 
 # ------------------------------------------------------------------ esquema

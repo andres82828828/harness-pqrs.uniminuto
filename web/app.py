@@ -83,18 +83,19 @@ def pedir_codigo(request: Request, correo: str = Form(...)):
             (correo, huella(codigo), reglas.MINUTOS_CODIGO),
         )
     try:
-        enviar_correo(
+        via = enviar_correo(
             correo, f"Tu código de acceso PQRS: {codigo}",
             f"Tu código de acceso al sistema de PQRS es {codigo}.\n"
             f"Vence en {reglas.MINUTOS_CODIGO} minutos. Si no lo pediste, ignora este mensaje.",
         )
-    except Exception as e:  # el correo no salio: se informa, no se oculta
-        print(f"ERROR enviando correo a {correo}: {e}", flush=True)
+    except Exception as e:  # ni el correo real ni el buzon local: se informa, no se oculta
+        print(f"ERROR enviando correo a {correo}: {type(e).__name__}", flush=True)
         return pagina(
             request, "ingreso.html", dominios=reglas.dominios_permitidos(), correo=correo,
             error="No se pudo enviar el código. Revisa que el servicio de correo esté encendido.",
         )
     request.session["correo_pendiente"] = correo
+    request.session["codigo_via"] = via
     return ir("/codigo")
 
 
@@ -103,7 +104,8 @@ def codigo_form(request: Request):
     correo = request.session.get("correo_pendiente")
     if not correo:
         return ir("/ingreso")
-    return pagina(request, "codigo.html", correo=correo, minutos=reglas.MINUTOS_CODIGO)
+    return pagina(request, "codigo.html", correo=correo, minutos=reglas.MINUTOS_CODIGO,
+                  via=request.session.get("codigo_via"))
 
 
 @app.post("/codigo")
@@ -126,7 +128,8 @@ def validar_codigo(request: Request, codigo: str = Form(...)):
         elif not secrets.compare_digest(fila["codigo_hash"], huella(codigo)):
             error = "Código incorrecto."
         if error:
-            return pagina(request, "codigo.html", correo=correo, minutos=reglas.MINUTOS_CODIGO, error=error)
+            return pagina(request, "codigo.html", correo=correo, minutos=reglas.MINUTOS_CODIGO, error=error,
+                          via=request.session.get("codigo_via"))
         con.execute("DELETE FROM codigos_acceso WHERE correo = %s", (correo,))
         rol = "admin" if correo in reglas.correos_admin() else "usuario"
         u = con.execute(
