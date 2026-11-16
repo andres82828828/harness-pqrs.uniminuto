@@ -35,7 +35,7 @@ ETIQ_TIPO = {"peticion": "Petición", "queja": "Queja", "reclamo": "Reclamo",
 ETIQ_TEMA = {"notas": "Notas", "finanzas": "Finanzas", "infraestructura": "Infraestructura",
              "bienestar": "Bienestar", "docentes": "Docentes", "biblioteca": "Biblioteca",
              "tecnologia": "Tecnología", "servicios": "Servicios"}
-ETIQ_CANAL = {"texto": "Texto", "audio": "Audio", "foto": "Foto"}
+ETIQ_CANAL = {"texto": "Texto", "audio": "Audio", "foto": "Foto", "mixto": "Varias partes"}
 COLOR_URG = {"alta": "#c0392b", "media": "#e1a100", "baja": "#2e8b57"}
 AZUL = "#1f4e79"
 

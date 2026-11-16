@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PQRS Inteligente · UNIMINUTO</title>
+  <style>
+    :root { --blue: #002f6c; --blue-2: #0755a3; --yellow: #fdb913; --bg: #f4f6f9; --ink: #1f2933; --muted: #52606d; --border: #d5dbe3; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: var(--bg);
+      color: var(--ink); font: 16px/1.5 Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; }
+    main { width: min(100%, 440px); background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 28px; text-align: center; }
+    .marca { display: inline-flex; align-items: center; gap: 10px; color: var(--blue); margin-bottom: 18px; }
+    .u { width: 34px; height: 36px; position: relative; border: 2px solid; border-radius: 2px 2px 9px 9px; display: grid; place-items: center; font-weight: 800; }
+    .u i { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--yellow); top: -6px; right: -5px; border: 2px solid #fff; }
+    .marca b { font-size: .95rem; letter-spacing: .04em; }
+    h1 { font-size: 1.5rem; margin: 0 0 8px; letter-spacing: -.03em; }
+    p { color: var(--muted); margin: 0 0 18px; }
+    a.boton { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; width: 100%; border-radius: 8px;
+      background: var(--blue); color: #fff; font-weight: 700; text-decoration: none; }
+    a.boton[hidden] { display: none; }
+    :focus-visible { outline: 3px solid rgba(253, 185, 19, .75); outline-offset: 2px; }
+    small { display: block; margin-top: 14px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="marca"><span class="u" aria-hidden="true">U<i></i></span><b>UNIMINUTO</b></div>
+    <h1>PQRS Inteligente</h1>
+    <p id="estado">Buscando el enlace del sistema…</p>
+    <a class="boton" id="ir" href="#" hidden>Abrir PQRS Inteligente</a>
+    <small id="detalle"></small>
+  </main>
+  <script>
+    // enlace.json lo actualiza scripts/publicar_enlace.py cada vez que se reinicia el tunel.
+    // El parametro t evita que el navegador o GitHub Pages devuelvan una version vieja.
+    fetch('enlace.json?t=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        if (!d.url) throw new Error('sin enlace');
+        const ir = document.getElementById('ir');
+        ir.href = d.url; ir.hidden = false;
+        document.getElementById('estado').textContent = 'Redirigiendo al sistema…';
+        if (d.actualizado) document.getElementById('detalle').textContent = 'Enlace publicado el ' + d.actualizado;
+        setTimeout(() => location.replace(d.url), 800);
+      })
+      .catch(() => {
+        document.getElementById('estado').textContent =
+          'El sistema no está disponible en este momento. Inténtalo más tarde o pide el enlace al equipo.';
+      });
+  </script>
+</body>
+</html>

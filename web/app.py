@@ -300,6 +300,12 @@ def acceso(request: Request):
     return pagina(request, "acceso.html", url=url, qr=qr)
 
 
+@app.get("/api/enlace")
+def enlace():
+    """Enlace publico actual del tunel; lo usa scripts/publicar_enlace.py para la pagina de GitHub Pages."""
+    return {"url": url_publica()}
+
+
 @app.get("/salud")
 def salud():
     with bd() as con:
