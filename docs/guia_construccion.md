@@ -5,7 +5,8 @@ explicado. La idea es que puedas rehacerlo o defenderlo sin ayuda. Cada paso ter
 **cómo comprobar que funciona** antes de seguir al siguiente.
 
 **Anexos** (al final): A. el harness función por función · B. la base de datos tabla por tabla ·
-C. la estructura de Docker · D. cómo estudiar el código en VS Code.
+C. la estructura de Docker · D. cómo estudiar el código en VS Code ·
+E. operación: administradores, correo y acceso al data lake.
 
 Archivos que se mencionan: todos están en este repositorio. Arquitectura y reglas de negocio:
 [`arquitectura_y_reglas.md`](arquitectura_y_reglas.md).
@@ -1000,3 +1001,103 @@ Atajos útiles:
 
 Para entender una función, mírala funcionando: deja corriendo `docker logs -f pqrs-worker` en una
 terminal, radica una PQRS en la web y lee en el log, línea por línea, lo que hace `procesar`.
+
+---
+
+# Anexo E. Operación: administradores, correo y acceso al data lake
+
+## E.1 Dar rol de administrador
+
+Hay dos formas, y se pueden usar juntas:
+
+1. **En el `.env`** (para el equipo del proyecto):
+   ```
+   CORREOS_ADMIN=correo1@uniminuto.edu.co,correo2@uniminuto.edu.co
+   ```
+   Después hay que reiniciar la web para que lea el cambio:
+   ```
+   docker compose -f docker-compose.yml -f docker-compose.web.yml up -d web
+   ```
+   Quien esté en esa lista queda como administrador **al ingresar**. Si la persona ya había entrado
+   antes como usuario normal, se vuelve administradora en su siguiente ingreso.
+
+2. **Desde el Panel** (para funcionarios y administradores adicionales): un administrador entra a
+   *Panel → Usuarios*, escribe el correo, elige el rol (usuario, funcionario de área o
+   administrador) y, si es funcionario, su área. Funciona aunque la persona todavía no haya entrado.
+
+Para cambiar el rol directamente en la base (por ejemplo, si nadie puede entrar al Panel):
+```sql
+UPDATE usuarios SET rol = 'admin', area = NULL WHERE correo = 'correo@uniminuto.edu.co';
+```
+
+## E.2 Correo real con Gmail
+
+Sin configuración, los códigos de acceso llegan al **buzón de prueba** (http://localhost:8025) y
+alguien tiene que leerlos ahí. Para que lleguen al correo real de cada persona:
+
+1. En la cuenta de Gmail que enviará los correos, activa la **verificación en dos pasos**
+   (*Cuenta de Google → Seguridad*).
+2. Crea una **contraseña de aplicación** en https://myaccount.google.com/apppasswords. Google
+   muestra 16 letras en cuatro grupos. **No sirve la contraseña normal de la cuenta**: Gmail la
+   rechaza para programas.
+3. En el `.env`:
+   ```
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=la.cuenta@gmail.com
+   SMTP_PASSWORD=las16letras
+   ```
+   Los espacios entre los grupos se pueden dejar: el sistema los ignora.
+4. Reinicia la web (comando de E.1).
+
+Cómo saber si funciona: al pedir un código, la página dice *"Lo enviamos a tu correo… revisa
+también la carpeta de spam"*. Si dice *"quedó en el buzón de prueba del sistema"*, el envío por Gmail
+falló y se usó el respaldo; el motivo aparece en `docker logs pqrs-web`.
+
+Cuidados:
+- La contraseña de aplicación va **solo** en el `.env`. Nunca en el repositorio, en capturas ni en chats.
+- Si se filtra, bórrala en la misma página de contraseñas de aplicación y crea otra.
+- Los correos salen con la dirección de esa cuenta como remitente.
+- Las cuentas de Gmail recién creadas pueden tener bloqueada por unos días la creación de
+  contraseñas de aplicación ("No pudimos verificar tu identidad"). Hay que esperar, usar el mismo
+  dispositivo y la misma red con que se creó la cuenta, y no reintentar muchas veces seguidas.
+
+## E.3 Cuentas de demostración
+
+Las direcciones de `CORREOS_DEMO` (por defecto `admin.demo@uniminuto.edu.co`) no existen de verdad,
+así que su código **siempre** llega al buzón de prueba, aunque Gmail esté configurado:
+```
+CORREOS_DEMO=admin.demo@uniminuto.edu.co
+```
+Sirven para mostrar el Panel sin depender del correo de nadie: se ingresa con esa dirección y el
+código se lee en http://localhost:8025.
+
+## E.4 Las direcciones del sistema y quién puede abrirlas
+
+| Qué | Dirección | ¿Desde otro equipo? |
+|---|---|---|
+| Aplicación (usuarios y Panel) | http://localhost:8000 | Sí, por el túnel o la página fija |
+| Página fija de acceso | https://andres82828828.github.io/harness-pqrs.uniminuto/ | Sí, desde cualquier lugar |
+| Enlace del túnel (cambia en cada reinicio) | http://localhost:8000/acceso | Sí |
+| Buzón de prueba | http://localhost:8025 | No |
+| Consola del data lake | http://localhost:9001/rustfs/console/ | No |
+| Base de datos | `localhost:5432` (con `psql`) | No |
+
+`localhost` significa "este mismo equipo". Por eso el buzón, el data lake y la base solo se abren
+en el portátil donde corre el sistema: si otra persona abre `localhost:9001` en su PC, ve su propio
+data lake (si lo tiene encendido), no el tuyo.
+
+**Ingresar a la consola del data lake:** usuario y contraseña son `MINIO_ROOT_USER` y
+`MINIO_ROOT_PASSWORD` del `.env`. En *Navegador* están los buckets: `pqrs-raw` (originales:
+`radicaciones/`, `textos/`, `audios/`, `fotos/`) y `pqrs-reportes` (los PDF).
+
+## E.5 Si otra persona del equipo necesita el data lake
+
+| Lo que necesita | Qué hacer |
+|---|---|
+| **Verlo** (por ejemplo, capturas para el documento) | Compartir pantalla o enviarle capturas de la consola |
+| **Trabajar con él** | Que levante el proyecto en su PC desde el repositorio (README): tendrá su propio data lake en su `localhost:9001`, con sus propios datos y contraseñas |
+| **Entrar al data lake de otro equipo desde lejos** | Es posible con un segundo túnel hacia el puerto 9001, pero **no se recomienda**: la consola es el panel de administración completo (ver y borrar todo, incluidas PQRS con datos personales), habría que compartir la contraseña de administrador y el enlace quedaría público mientras el túnel esté abierto. Si se hace, solo por el tiempo necesario y cerrándolo después |
+
+Lo mismo aplica a la base de datos: cada integrante debería tener la suya en su propio equipo, y
+nunca exponerla a internet.

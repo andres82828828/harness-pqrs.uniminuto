@@ -142,4 +142,6 @@ pqrs-inteligente/
 - **Un puerto está ocupado (8000, 5432, 9000, 9001, 8025, 11434):** otro programa lo usa; ciérralo
   o cambia el puerto en el `docker-compose`.
 - **No llega el código de acceso:** revisa el buzón de prueba en http://localhost:8025.
+- **Administradores, correo real con Gmail y acceso al data lake desde otro equipo:** ver el
+  Anexo E de `docs/guia_construccion.md`.
 - **El micrófono no graba:** entra por el enlace HTTPS del túnel, no por la IP.
