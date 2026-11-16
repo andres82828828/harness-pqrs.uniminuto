@@ -2,6 +2,21 @@
 
 Ejecuta los comandos **uno por uno**, en orden. En Windows PowerShell no se usa `&&`.
 
+## La forma corta: un solo comando
+
+```powershell
+cd "C:\andrés\Uniminuto\SEMESTRE VI\ARQUITECTURA\pqrs-inteligente"
+python scripts/sistema.py encender
+python scripts/sistema.py apagar
+```
+
+`encender` hace todo lo de la sección "Encender" de abajo. `apagar` detiene los servicios, cierra
+Docker Desktop de forma segura y cierra pgAdmin, el `.env` abierto en el Bloc de notas y la ventana
+de VS Code del proyecto (como al presionar la X: si hay algo sin guardar, pregunta). El navegador no
+se cierra, para no perder tus otras pestañas. Con `--simular` muestra los pasos sin ejecutarlos.
+
+Abajo están los mismos pasos, uno por uno, por si quieres hacerlos a mano.
+
 ## Encender
 
 ```powershell

@@ -41,7 +41,8 @@ envía al área responsable. Todo corre en un solo equipo con Docker, sin servic
    Pon tu correo institucional en `CORREOS_ADMIN` para entrar como administrador, y un texto
    largo cualquiera en `SECRET_KEY` (si queda vacío, las sesiones se cierran cada vez que se
    reinicia la web).
-3. Levanta todo:
+3. Levanta todo (o, en Windows, simplemente `python scripts/sistema.py encender`; para apagar,
+   `python scripts/sistema.py apagar`):
    ```
    docker compose -f docker-compose.yml -f docker-compose.web.yml up -d --build
    ```
