@@ -77,7 +77,8 @@ def enviar_correo(destino: str, asunto: str, cuerpo: str) -> str:
             with smtplib.SMTP(os.environ.get("SMTP_HOST", "smtp.gmail.com"),
                               int(os.environ.get("SMTP_PORT", "587")), timeout=15) as smtp:
                 smtp.starttls()
-                smtp.login(usuario, os.environ.get("SMTP_PASSWORD", ""))
+                # Google muestra la contrasena de aplicacion en grupos con espacios: se ignoran
+                smtp.login(usuario, os.environ.get("SMTP_PASSWORD", "").replace(" ", ""))
                 # Gmail exige que el remitente sea la propia cuenta
                 smtp.send_message(_mensaje(os.environ.get("SMTP_FROM") or usuario, destino, asunto, cuerpo))
             return "real"
