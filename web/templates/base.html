@@ -10,7 +10,7 @@
 </head>
 <body>
   <header class="barra">
-    <a class="marca" href="/"><span class="marca-u" aria-hidden="true">U<i></i></span><span><b>UNIMINUTO</b><small>PQRS Inteligente</small></span></a>
+    <a class="marca" href="/"><img src="/static/logo-uniminuto.png" alt="UNIMINUTO" class="marca-logo"><span class="marca-texto"><b>PQRS Inteligente</b><small>Peticiones, quejas, reclamos y sugerencias</small></span></a>
     {% if usuario %}
     <nav>
       <a href="/nueva">Nueva</a>
@@ -24,6 +24,6 @@
     {% if error %}<p class="aviso error" role="alert">{{ error }}</p>{% endif %}
     {% block contenido %}{% endblock %}
   </main>
-  {% if usuario %}<footer>Sesión: {{ usuario.correo }}</footer>{% endif %}
+  <footer>{% if usuario %}Sesión: {{ usuario.correo }} · {% endif %}Prototipo académico de estudiantes de UNIMINUTO; no es un sitio oficial de la universidad.</footer>
 </body>
 </html>

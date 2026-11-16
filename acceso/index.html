@@ -21,15 +21,17 @@
     a.boton[hidden] { display: none; }
     :focus-visible { outline: 3px solid rgba(253, 185, 19, .75); outline-offset: 2px; }
     small { display: block; margin-top: 14px; color: var(--muted); }
+    .logo { width: 150px; height: auto; margin-bottom: 14px; }
   </style>
 </head>
 <body>
   <main>
-    <div class="marca"><span class="u" aria-hidden="true">U<i></i></span><b>UNIMINUTO</b></div>
+    <img src="logo-uniminuto.png" alt="UNIMINUTO" class="logo">
     <h1>PQRS Inteligente</h1>
     <p id="estado">Buscando el enlace del sistema…</p>
     <a class="boton" id="ir" href="#" hidden>Abrir PQRS Inteligente</a>
     <small id="detalle"></small>
+    <small>Prototipo académico de estudiantes de UNIMINUTO; no es un sitio oficial de la universidad.</small>
   </main>
   <script>
     // enlace.json lo actualiza scripts/publicar_enlace.py cada vez que se reinicia el tunel.

@@ -237,3 +237,10 @@ audio { width: 100%; }
 .parte + .parte { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; }
 .parte h3 { font-size: .92rem; margin: 0; }
 .parte .original, .parte audio { margin-top: 10px; }
+
+/* logo oficial (fondo transparente: va siempre sobre superficies claras) */
+.marca-logo { height: 44px; width: auto; display: block; }
+.marca-texto { border-left: 1px solid var(--border); padding-left: 10px; }
+.marca-texto b { font-size: .92rem; letter-spacing: 0; }
+@media (max-width: 420px) { .marca-texto small { display: none; } }
+.auth-logo { width: 150px; height: auto; display: block; margin-bottom: 18px; }

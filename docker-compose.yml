@@ -36,7 +36,7 @@ services:
 
   # ---------- IA LOCAL (clasificador) ----------
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.40.16   # version fija: otra version puede cambiar resultados
     container_name: pqrs-ollama
     ports:
       - "11434:11434"
@@ -45,7 +45,7 @@ services:
 
   # Descarga el modelo la primera vez (~2 GB)
   ollama-init:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.40.16   # version fija: otra version puede cambiar resultados
     container_name: pqrs-ollama-init
     depends_on:
       - ollama

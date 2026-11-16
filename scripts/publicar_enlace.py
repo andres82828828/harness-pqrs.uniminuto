@@ -71,12 +71,13 @@ def main():
         mismo_enlace = previo.exists() and json.loads(previo.read_text(encoding="utf-8")).get("url") == url
         def normal(ruta):  # git en Windows puede cambiar los finales de linea
             return ruta.read_bytes().replace(b"\r\n", b"\n")
-        mismo_html = (destino / "index.html").exists() and \
-            normal(destino / "index.html") == normal(RAIZ / "acceso" / "index.html")
-        if mismo_enlace and mismo_html:
+        archivos = [f for f in (RAIZ / "acceso").iterdir() if f.is_file()]  # index.html, logo...
+        mismos = all((destino / f.name).exists() and normal(destino / f.name) == normal(f) for f in archivos)
+        if mismo_enlace and mismos:
             print("La pagina ya tenia este enlace; no hay nada que publicar.")
             return
-        shutil.copy(RAIZ / "acceso" / "index.html", destino / "index.html")
+        for f in archivos:
+            shutil.copy(f, destino / f.name)
         (destino / ".nojekyll").write_text("")
         (destino / "enlace.json").write_text(json.dumps(
             {"url": url, "actualizado": datetime.now().strftime("%d/%m/%Y %H:%M")}, ensure_ascii=False), encoding="utf-8")
