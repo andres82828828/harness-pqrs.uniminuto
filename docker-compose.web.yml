@@ -15,6 +15,7 @@ services:
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       DOMINIOS_PERMITIDOS: ${DOMINIOS_PERMITIDOS:-uniminuto.edu.co}
       CORREOS_ADMIN: ${CORREOS_ADMIN:-}
+      CORREOS_DEMO: ${CORREOS_DEMO:-admin.demo@uniminuto.edu.co}   # cuentas de prueba: su correo va al buzon local
       MAX_RADICACIONES_DIA: ${MAX_RADICACIONES_DIA:-5}
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}

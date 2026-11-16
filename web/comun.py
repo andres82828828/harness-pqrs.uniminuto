@@ -70,8 +70,12 @@ def enviar_correo(destino: str, asunto: str, cuerpo: str) -> str:
     Si ese envio falla, o si no hay correo real configurado, lo deja en el buzon local de
     prueba (Mailpit, http://localhost:8025) para que nadie quede bloqueado sin su codigo.
     Si tambien falla el buzon local, lanza la excepcion.
+
+    Las cuentas de demostracion (CORREOS_DEMO, p. ej. admin.demo@uniminuto.edu.co) no existen
+    de verdad: su correo siempre va al buzon local.
     """
-    if correo_real_configurado():
+    demo = {c.strip().lower() for c in os.environ.get("CORREOS_DEMO", "").split(",") if c.strip()}
+    if correo_real_configurado() and destino.lower() not in demo:
         usuario = os.environ["SMTP_USER"]
         try:
             with smtplib.SMTP(os.environ.get("SMTP_HOST", "smtp.gmail.com"),
