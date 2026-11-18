@@ -8,7 +8,7 @@ cómo operarlo, cómo sustentarlo y cómo arreglarlo. Resume y reemplaza la lect
 Repositorio: https://github.com/andres82828828/harness-pqrs.uniminuto
 Acceso fijo: https://andres82828828.github.io/harness-pqrs.uniminuto/
 
-**Contenido:** 1. Qué es · 2. Arquitectura · 3. Reglas de negocio · 4. El código · 5. Base de datos ·
+**Contenido:** 1. Qué es · 2. Arquitectura · 3. Reglas de negocio · 4. El código (4.5: el correo) · 5. Base de datos ·
 6. Docker · 7. Operación · 8. Resultados · 9. Sustentación · 10. Si algo se rompe · 11. Lecciones
 
 ---
@@ -167,6 +167,132 @@ requests.post(f"{url}/api/chat", json={"model": "llama3.2:3b", "stream": False,
   responder envía correo; cada acción queda en `historial`.
 - **Correo:** `enviar_correo()` usa Gmail si hay `SMTP_USER` y `SMTP_PASSWORD`; si falla, Mailpit.
   Las cuentas de `CORREOS_DEMO` (por defecto `admin.demo@uniminuto.edu.co`) siempre van a Mailpit.
+
+### 4.5 El correo, de principio a fin
+
+El sistema envía dos tipos de correo: el **código de acceso** al ingresar y la **respuesta** de un
+funcionario a una PQRS. Todos salen por una sola función, `enviar_correo`, en
+[`web/comun.py`](../web/comun.py).
+
+#### Las piezas
+
+| Pieza | Qué es | Dónde |
+|---|---|---|
+| **Gmail** (`smtp.gmail.com`, puerto 587) | Correo real: le llega a la persona en su bandeja | Cuenta `pqrs.inteligente.uniminuto@gmail.com` |
+| **Contraseña de aplicación** | Clave de 16 letras que Gmail exige a los programas; no es la contraseña de la cuenta, se puede revocar | Solo en el `.env` (`SMTP_PASSWORD`) |
+| **Mailpit** (`mailpit:1025`) | Buzón local de prueba y de respaldo; no envía nada a internet | Contenedor `pqrs-correo`, se ve en http://localhost:8025 |
+| **SMTP** | El protocolo estándar para enviar correo | `smtplib`, librería de Python |
+| **STARTTLS** | Cifra la conexión con Gmail antes de enviar la clave | `smtp.starttls()` |
+
+#### Paso a paso: el código de acceso
+
+**1. El usuario escribe su correo y presiona "Enviar código"** → [`web/app.py`](../web/app.py),
+función `pedir_codigo` (ruta `POST /ingreso`, línea 67):
+
+```python
+if not reglas.correo_permitido(correo):            # línea 70: solo @uniminuto.edu.co exacto (RN-01)
+    return error(...)
+codigo = f"{secrets.randbelow(1_000_000):06d}"      # línea 76: 6 dígitos, aleatorio seguro
+# línea 79: se guarda en codigos_acceso SOLO el hash SHA-256, con vencimiento de 10 min e intentos = 0
+via = enviar_correo(correo, f"Tu código de acceso PQRS: {codigo}",
+                    f"Tu código ... Vence en 10 minutos ...")    # línea 86
+request.session["codigo_via"] = via                 # línea 98: recuerda si salió por Gmail o por el buzón
+```
+
+**2. `enviar_correo` decide por dónde sale** → [`web/comun.py`](../web/comun.py), línea 66:
+
+```python
+demo = {correos de CORREOS_DEMO}                                   # línea 77
+if correo_real_configurado() and destino.lower() not in demo:     # hay SMTP_USER y SMTP_PASSWORD
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as smtp:   # línea 81
+            smtp.starttls()                                             # cifra la conexión
+            smtp.login(usuario, contraseña_sin_espacios)                # línea 85
+            smtp.send_message(mensaje)                                  # línea 87
+        return "real"
+    except Exception:
+        print("AVISO: el correo real falló ...; se usa el buzón local de respaldo")
+with smtplib.SMTP("mailpit", 1025) as smtp:                        # línea 92: respaldo
+    smtp.send_message(mensaje)
+return "buzon_local"
+```
+
+El orden de decisión:
+
+| Situación | Por dónde sale | Qué ve el usuario |
+|---|---|---|
+| Correo normal y Gmail configurado | **Gmail** → bandeja real | "Lo enviamos a tu correo. Revisa también la carpeta de spam" |
+| Cuenta de demostración (`CORREOS_DEMO`, por defecto `admin.demo@uniminuto.edu.co`) | **Mailpit** (no existe de verdad) | "Quedó en el buzón de prueba del sistema" |
+| Gmail no configurado (falta `SMTP_USER` o `SMTP_PASSWORD`) | **Mailpit** | "Quedó en el buzón de prueba del sistema" |
+| Gmail falla (sin internet, clave mala, Google caído) | **Mailpit** (respaldo) y un `AVISO` en `docker logs pqrs-web` | "Quedó en el buzón de prueba del sistema" |
+| También falla Mailpit | No sale; error en pantalla | "No se pudo enviar el código…" |
+
+**3. El usuario escribe el código** → [`web/app.py`](../web/app.py), ruta `POST /codigo` (línea 111):
+busca el hash guardado, revisa que no haya vencido (10 min) ni pasado de 5 intentos, y compara con
+`secrets.compare_digest` (línea 128), que evita ataques por medición de tiempo. Si coincide, **borra el
+código** (es de un solo uso), crea o actualiza al usuario en `usuarios` y abre la sesión firmada.
+
+#### Paso a paso: la respuesta al usuario
+
+En el Panel, cuando un funcionario cambia el estado a **Respondida** → [`web/panel.py`](../web/panel.py),
+función `cambiar_estado` (línea 140): guarda la respuesta en `gestion` y llama (línea 166):
+
+```python
+enviar_correo(c["correo"], f"Respuesta a tu PQRS {radicado}", f"Tu PQRS {radicado} fue respondida: ...")
+```
+
+Si este correo falla, **el caso queda respondido igual**: la respuesta también se ve en *Mis casos*.
+
+#### Configuración (`.env`)
+
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=pqrs.inteligente.uniminuto@gmail.com
+SMTP_PASSWORD=las16letras          # contraseña de APLICACIÓN; los espacios se ignoran
+CORREOS_DEMO=admin.demo@uniminuto.edu.co   # opcional: estas cuentas siempre van al buzón local
+```
+
+Después de cambiar el `.env`, reiniciar la web:
+`docker compose -f docker-compose.yml -f docker-compose.web.yml up -d web`
+
+Cómo obtener la contraseña de aplicación: en la cuenta de Gmail, activar la **verificación en dos pasos**
+y crearla en https://myaccount.google.com/apppasswords. La contraseña normal de la cuenta **no sirve**:
+Gmail la rechaza para programas. Las cuentas recién creadas pueden tener bloqueada esta opción por unos días.
+
+#### Seguridad
+
+- **Dominio exacto:** `uniminuto.edu.co.evil.com` o `@gmail.com` se rechazan antes de enviar nada.
+- **El código no se guarda en claro:** solo su hash SHA-256 en `codigos_acceso`.
+- **Vence en 10 minutos, máximo 5 intentos y un solo uso.**
+- **Conexión cifrada** con Gmail (STARTTLS) y **contraseña de aplicación revocable**.
+- **Las claves viven solo en el `.env`**, que no se sube al repositorio.
+- **El remitente es la propia cuenta** de Gmail: Gmail no deja enviar a nombre de otra dirección.
+
+#### Cómo revisarlo
+
+| Quiero… | Cómo |
+|---|---|
+| Ver los correos que quedaron en el buzón local | http://localhost:8025 |
+| Saber si Gmail falló y por qué | `docker logs pqrs-web --tail 40` y buscar `AVISO: el correo real falló` |
+| Ver si hay códigos pendientes en la base | `SELECT correo, expira_en, intentos FROM codigos_acceso;` |
+| Probar el envío real | Ingresar con tu correo institucional: la página debe decir "Lo enviamos a tu correo" |
+
+#### Si algo falla con el correo
+
+| Síntoma | Causa probable | Arreglo |
+|---|---|---|
+| Siempre dice "quedó en el buzón de prueba" | Falta `SMTP_PASSWORD` o es la contraseña de la cuenta | Poner la contraseña de aplicación y reiniciar la web |
+| `AVISO … SMTPAuthenticationError` en el log | Contraseña de aplicación mala o revocada | Crear otra y reemplazarla en el `.env` |
+| `AVISO … gaierror` o `timeout` | Sin internet | Usar el buzón local; revisar la conexión |
+| El correo llega a spam | Primer envío de una cuenta nueva a un dominio institucional | Marcarlo como "no es spam" |
+| "No se pudo enviar el código" | Mailpit apagado | `docker compose … up -d mailpit` |
+
+**Para decirlo en la sustentación:**
+> "Cuando el usuario escribe su correo, validamos el dominio, generamos un código aleatorio y guardamos
+> solo su hash. `enviar_correo` lo manda por SMTP a Gmail, con conexión cifrada y una contraseña de
+> aplicación. Si Gmail falla, el código queda en un buzón local de respaldo y la pantalla lo avisa, así
+> nadie queda bloqueado. El mismo mecanismo envía la respuesta cuando un funcionario cierra el caso."
 
 ---
 
