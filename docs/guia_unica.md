@@ -8,7 +8,7 @@ cómo operarlo, cómo sustentarlo y cómo arreglarlo. Resume y reemplaza la lect
 Repositorio: https://github.com/andres82828828/harness-pqrs.uniminuto
 Acceso fijo: https://andres82828828.github.io/harness-pqrs.uniminuto/
 
-**Contenido:** 1. Qué es · 2. Arquitectura · 3. Reglas de negocio · 4. El código (4.5: el correo) · 5. Base de datos ·
+**Contenido:** 1. Qué es · 2. Arquitectura · 3. Reglas de negocio · 4. El código (4.5: el correo · 4.6: cada .py) · 5. Base de datos ·
 6. Docker · 7. Operación · 8. Resultados · 9. Sustentación · 10. Si algo se rompe · 11. Lecciones
 
 ---
@@ -293,6 +293,152 @@ Gmail la rechaza para programas. Las cuentas recién creadas pueden tener bloque
 > solo su hash. `enviar_correo` lo manda por SMTP a Gmail, con conexión cifrada y una contraseña de
 > aplicación. Si Gmail falla, el código queda en un buzón local de respaldo y la pantalla lo avisa, así
 > nadie queda bloqueado. El mismo mecanismo envía la respuesta cuando un funcionario cierra el caso."
+
+### 4.6 Cada archivo `.py`, función por función
+
+Lo que hace cada función, en una línea, con su número de línea. Para ir a una función: abre el archivo
+y presiona **Ctrl + Shift + O**. `harness/main.py` y `harness/clasificador.py` están en 4.2 y 4.3.
+
+#### [`harness/evaluar.py`](../harness/evaluar.py): mide la precisión del modelo
+| Línea | Función | Qué hace |
+|---|---|---|
+| 17 | `CAMPOS` | Los tres campos que se comparan: tipo, tema y urgencia |
+| 20 | `cargar_etiquetas(ruta)` | Lee `etiquetas.csv` en un diccionario `{archivo: respuesta correcta}` |
+| 25 | `calcular(etiquetas, filas)` | Compara cada caso con su etiqueta: aciertos por campo, los tres bien ("exacto"), por canal, lista de errores y *recall* de urgencia alta. Ignora casos sin etiqueta (los de la web) |
+| 71 | `imprimir(res, nombre)` | Muestra la tabla de resultados en pantalla |
+| 90 | `main()` | Lee `pqrs_casos`, calcula, imprime y guarda `reports/evaluacion_<clasificador>.json` |
+
+#### [`harness/reporte.py`](../harness/reporte.py): reporte mensual en PDF
+| Línea | Función | Qué hace |
+|---|---|---|
+| 31–40 | `MESES`, `ETIQ_*`, `COLOR_URG` | Nombres en español y colores del reporte |
+| 44 | `pct(n, total)` | Porcentaje como texto ("27 %") |
+| 48 | `extracto(texto)` | Resumen corto de un caso sin saludos, nombres ni firma (RN-20) |
+| 68 | `grafico_resumen(filas)` | Cuatro gráficos de barras (tipo, urgencia, canal, tema) con matplotlib |
+| 108 | `hallazgos(filas)` | Frases automáticas (totales, tema y tipo más frecuentes, urgencias) y recomendaciones |
+| 137 | `construir_pdf(...)` | Arma el PDF con reportlab: resumen, gráficos, tablas y nota de clasificación automática |
+| 228 | `main()` | Elige el mes (`--mes` o el más reciente), consulta la base, genera el PDF y lo sube a `pqrs-reportes` |
+
+#### [`synthetic_data/generar_datos.py`](../synthetic_data/generar_datos.py): los 30 casos de prueba
+| Línea | Función | Qué hace |
+|---|---|---|
+| 34 | `SEMILLA = 42` | Hace que siempre se generen los mismos casos (reproducibilidad) |
+| 45 | `CASOS_BASE` | Los casos con su respuesta correcta: tipo, tema, urgencia, área y texto |
+| 110 | `cargar_fuente(tamaño)` | Busca una fuente de letra para dibujar los formularios |
+| 130 | `ajustar_texto(...)` | Parte el texto en líneas que quepan en el formulario |
+| 145 | `correo_desde_nombre(nombre)` | Arma un correo ficticio a partir del nombre |
+| 152 | `generar_texto(caso, ruta)` | Escribe el `.txt` con formato de correo |
+| 164 | `generar_audio(caso, ruta)` | Crea el `.mp3` con voz sintética (gTTS, necesita internet) |
+| 174 | `generar_foto(caso, ruta)` | Dibuja un formulario PQRS como `.png` con Pillow |
+| 202 | `conectar_s3()` | Cliente boto3 al data lake |
+| 222 | `asegurar_bucket(s3, nombre)` | Crea el bucket si no existe |
+| 232 | `subir_al_data_lake(casos)` | Sube cada archivo a `pqrs-raw/textos|audios|fotos/`, con la fecha como metadato |
+| 245 | `main()` | Genera los casos (alterna texto, audio y foto), escribe `etiquetas.csv` y los sube. Opciones `--casos`, `--sin-audio`, `--solo-local` |
+
+#### [`web/reglas.py`](../web/reglas.py): las reglas de negocio en código
+| Línea | Función o constante | Qué hace |
+|---|---|---|
+| 6 | `LIMITES` | Límites de texto (20–2.000), audio (10 MB) y foto (5 MB) (RN-07) |
+| 14–15 | `CARPETA_PAQUETES`, `MANIFIESTO` | `radicaciones/` y `manifiesto.json` |
+| 18 | `PLAZO_DIAS_HABILES` | alta 1, media 5, baja 15 (RN-15) |
+| 20–21 | `MINUTOS_CODIGO`, `INTENTOS_CODIGO` | El código vence en 10 min y admite 5 intentos |
+| 24 | `dominios_permitidos()` | Lee `DOMINIOS_PERMITIDOS` del `.env` (por defecto `uniminuto.edu.co`) |
+| 28 | `correos_admin()` | Lee `CORREOS_ADMIN` |
+| 32 | `max_radicaciones_dia()` | Máximo 5 por día (RN-08) |
+| 36 | `correo_permitido(correo)` | Un solo `@`, sin espacios y dominio **exacto** (RN-01) |
+| 44 | `formato_radicado(año, número)` | `PQRS-2026-000001` (RN-05) |
+| 48 | `validar_texto(...)` | Revisa el largo; con adjuntos permite una nota corta |
+| 59 | `validar_archivo(...)` | Revisa extensión permitida, tamaño máximo y que no esté vacío |
+| 72 | `fecha_limite(recibido, urgencia)` | Suma días hábiles de lunes a viernes (no descuenta festivos) |
+| 83 | `semaforo(...)` | Verde, amarillo (< 25 % del plazo) o rojo (vencido) (RN-16) |
+| 96–111 | `TIPOS`, `URGENCIAS`, `AREA_POR_TEMA`, `TEMAS`, `AREAS` | Catálogos cerrados (RN-09, RN-10) |
+| 114–133 | `ETIQUETA_ESTADO`, `ESTADOS_GESTION`, `ETIQUETAS`, `ROLES` | Estados, nombres para mostrar y roles |
+| 136 | `validar_clasificacion(...)` | La corrección del funcionario también usa los catálogos |
+| 143 | `validar_cambio_estado(...)` | Reglas de estado: no gestionar sin clasificar, no cerrar sin responder, respuesta ≥ 10 caracteres (RN-14) |
+
+#### [`web/comun.py`](../web/comun.py): lo compartido por la web y el panel
+| Línea | Función | Qué hace |
+|---|---|---|
+| 20–22 | `BUCKET`, `BUCKET_REPORTES`, `DSN` | Nombres de los buckets y datos de conexión a la base |
+| 34 | `bd()` | Abre una conexión a PostgreSQL (psycopg) |
+| 38 | `s3()` | Cliente boto3 al data lake |
+| 52 | `_mensaje(...)` | Arma el correo (remitente, destino, asunto y cuerpo) |
+| 61 | `correo_real_configurado()` | ¿Hay `SMTP_USER` y `SMTP_PASSWORD`? |
+| 66 | `enviar_correo(...)` | Envía por Gmail o por el buzón local (ver 4.5) |
+| 98 | `ESQUEMA` | El SQL que crea las tablas de la web al arrancar (idempotente) |
+| 167 | `usuario_actual(request)` | El usuario guardado en la sesión |
+| 171 | `usuario_bd(request)` | Relee el usuario desde la base, para que un cambio de rol aplique de inmediato |
+| 185 | `pagina(...)` | Muestra una plantilla HTML con sus datos |
+| 190 | `ir(ruta)` | Redirige a otra página |
+| 196 | `CONSULTA_CASO` | El SQL que une `radicaciones`, `usuarios`, `pqrs_casos` y `gestion` |
+| 216 | `armar_caso(fila)` | Deduce estado, valores vigentes (corregidos o del modelo), área, plazo y semáforo |
+| 252 | `partes_de(c)` | Las partes de una PQRS con su texto y tiempo (de `pqrs_partes`) |
+| 272 | `clave_parte(c, tipo)` | La ruta en el data lake del original de una parte |
+| 283 | `casos(...)` | Lista de casos ya armados |
+| 289 | `caso(radicado)` | Un caso por su número |
+| 294 | `puede_ver(u, c)` | Usuario: los suyos; funcionario: los de su área; administrador: todos |
+
+#### [`web/app.py`](../web/app.py): lo que ve el usuario
+| Línea | Ruta / función | Qué hace |
+|---|---|---|
+| 42 | `preparar()` (al arrancar) | Crea las tablas de la web y el bucket `pqrs-raw` si no existen |
+| 53 | `huella(texto)` | Hash SHA-256 del código de acceso |
+| 57 | `GET /` | Lleva al ingreso o a "Nueva PQRS" según haya sesión |
+| 62 | `GET /ingreso` | Pantalla para escribir el correo |
+| 67 | `POST /ingreso` → `pedir_codigo` | Valida el dominio, genera el código, guarda su hash y lo envía (ver 4.5) |
+| 102 | `GET /codigo` | Pantalla para escribir el código |
+| 111 | `POST /codigo` → `validar_codigo` | Verifica vencimiento, intentos y hash; crea el usuario y abre la sesión |
+| 147 | `POST /salir` | Cierra la sesión |
+| 154 | `GET /nueva` | La caja tipo chat para radicar |
+| 161 | `POST /nueva` → `radicar` | Valida cada parte (RN-04, 07, 08), evita duplicados, sube las partes y el manifiesto al data lake y registra la radicación |
+| 245 | `caso_propio(...)` | El caso solo si es del usuario (o si es administrador) |
+| 252 | `GET /caso/{radicado}` | Pantalla de seguimiento |
+| 264 | `GET /api/caso/{radicado}` | Estado en JSON; la página lo consulta cada 2 s |
+| 275 | `GET /mis-casos` | Lista de PQRS del usuario |
+| 284 | `url_publica()` | Pregunta al túnel cuál es el enlace público |
+| 299 | `GET /acceso` | Enlace público y su código QR |
+| 306 | `GET /api/enlace` | El enlace en JSON (lo usa `publicar_enlace.py`) |
+| 312 | `GET /salud` | Comprueba que la web y la base respondan |
+
+#### [`web/panel.py`](../web/panel.py): el panel de funcionarios y administradores
+| Línea | Ruta / función | Qué hace |
+|---|---|---|
+| 26 | `personal(request, solo_admin)` | Deja pasar solo a funcionarios y administradores (o solo administradores) |
+| 34 | `sin_permiso(request)` | Página "Sin permiso" |
+| 41 | `casos_visibles(u)` | Todos para el administrador; los de su área para el funcionario |
+| 49 | `anotar(...)` | Escribe una línea en `historial` |
+| 55 | `GET /panel` → `bandeja` | Lista con filtros, ordenada por estado y semáforo |
+| 78 | `ver(...)` | Arma la página de detalle con partes e historial |
+| 95 | `GET /panel/caso/{radicado}` | Detalle del caso |
+| 103 | `POST …/clasificar` | Corrige tipo, tema y urgencia en `gestion` sin borrar lo del modelo (RN-13) |
+| 139 | `POST …/estado` → `cambiar_estado` | En gestión, respondida (envía correo) o cerrada (RN-14, RN-18) |
+| 174 | `GET /panel/archivo/{radicado}/{parte}` | Entrega el original de una parte desde el data lake |
+| 194 | `conteo(...)` | Cuenta casos por un campo para las barras del tablero |
+| 202 | `GET /panel/tablero` | Cifras y gráficos |
+| 230 | `GET /panel/reportes` | Lista de PDF del bucket `pqrs-reportes` (solo administrador) |
+| 243 | `GET /panel/reportes/descargar` | Descarga un PDF |
+| 257 | `lista_usuarios()` | Usuarios con su rol, área y cuántas PQRS radicaron |
+| 266 | `GET /panel/usuarios` | Pantalla de usuarios y roles |
+| 274 | `POST /panel/usuarios` → `guardar_usuario` | Asigna rol y área; un administrador no puede quitarse su propio rol |
+
+#### [`scripts/sistema.py`](../scripts/sistema.py): encender y apagar
+| Línea | Función | Qué hace |
+|---|---|---|
+| 31 | `paso(texto)` | Imprime el título de cada paso |
+| 35 | `correr(cmd)` | Ejecuta un comando (o solo lo muestra con `--simular`) |
+| 46 | `powershell(script)` | Ejecuta un comando de PowerShell |
+| 54 | `docker_listo()` | ¿Responde el motor de Docker? |
+| 63 | `encender()` | Docker → servicios → página fija → calienta el modelo → abre la app |
+| 106 | `cerrar_ventanas(...)` | Pide cerrar ventanas como al presionar la X (no fuerza nada) |
+| 120 | `apagar()` | Detiene los servicios, cierra Docker de forma segura, cierra pgAdmin, el `.env` y VS Code del proyecto |
+| 136 | `main()` | Lee `encender` o `apagar` y las opciones `--simular` y `--sin-calentar` |
+
+#### [`scripts/publicar_enlace.py`](../scripts/publicar_enlace.py): la página fija de acceso
+| Línea | Función | Qué hace |
+|---|---|---|
+| 29 | `git(...)` | Ejecuta un comando de Git |
+| 33 | `enlace_actual(web, espera)` | Pide a la web el enlace del túnel (`/api/enlace`); espera hasta 60 s |
+| 49 | `main()` | Clona la rama `gh-pages`, copia `acceso/` y escribe `enlace.json`; si cambió, hace commit y push |
 
 ---
 
