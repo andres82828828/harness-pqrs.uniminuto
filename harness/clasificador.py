@@ -124,8 +124,10 @@ def _llamar_ollama(prompt):
         f"{url}/api/chat",
         json={"model": modelo, "stream": False, "format": "json",
               "messages": [{"role": "user", "content": prompt}],
-              "options": {"temperature": 0}},
-        timeout=300,
+              "options": {"temperature": 0},
+              "keep_alive": os.getenv("OLLAMA_KEEP_ALIVE", "24h")},  # no descargar el modelo entre PQRS
+        # En CPU y con poca memoria una respuesta puede tardar varios minutos: mejor esperar que fallar
+        timeout=int(os.getenv("OLLAMA_TIMEOUT", "900")),
     )
     r.raise_for_status()
     return r.json()["message"]["content"]

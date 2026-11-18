@@ -38,6 +38,10 @@ services:
   ollama:
     image: ollama/ollama:0.40.16   # version fija: otra version puede cambiar resultados
     container_name: pqrs-ollama
+    environment:
+      # Mantener el modelo cargado en memoria. Por defecto Ollama lo descarga tras 5 min sin uso,
+      # y la siguiente PQRS paga de nuevo la carga (1 a 4 min en CPU en vez de unos 20 s).
+      OLLAMA_KEEP_ALIVE: "24h"
     ports:
       - "11434:11434"
     volumes:
