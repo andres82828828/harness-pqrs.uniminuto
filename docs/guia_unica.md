@@ -2,8 +2,8 @@
 
 Todo lo necesario en un solo documento: qué es, cómo funciona, el código, la base de datos, Docker,
 cómo operarlo, cómo sustentarlo y cómo arreglarlo. Resume y reemplaza la lectura de las demás guías
-(`guia_construccion.md`, `arquitectura_y_reglas.md`, `sustentacion.md`, `reparacion.md`,
-`comandos_powershell.md`), que siguen en `docs/` por si necesitas el detalle.
+([`guia_construccion.md`](../docs/guia_construccion.md), [`arquitectura_y_reglas.md`](../docs/arquitectura_y_reglas.md), [`sustentacion.md`](../docs/sustentacion.md), [`reparacion.md`](../docs/reparacion.md),
+[`comandos_powershell.md`](../docs/comandos_powershell.md)), que siguen en `docs/` por si necesitas el detalle.
 
 Repositorio: https://github.com/andres82828828/harness-pqrs.uniminuto
 Acceso fijo: https://andres82828828.github.io/harness-pqrs.uniminuto/
@@ -36,7 +36,7 @@ Acceso fijo: https://andres82828828.github.io/harness-pqrs.uniminuto/
 
 ## 2. Arquitectura
 
-Diagramas: `docs/arquitectura_pqrs.png` (lógica) y `docs/despliegue_pqrs.png` (despliegue).
+Diagramas: [`docs/arquitectura_pqrs.png`](../docs/arquitectura_pqrs.png) (lógica) y [`docs/despliegue_pqrs.png`](../docs/despliegue_pqrs.png) (despliegue).
 
 **Flujo de un caso (pasos del diagrama):**
 1. El usuario radica en la web: texto, una foto y/o un audio. Cada parte va a
@@ -98,22 +98,22 @@ Diagramas: `docs/arquitectura_pqrs.png` (lógica) y `docs/despliegue_pqrs.png` (
 
 | Archivo | Qué hace |
 |---|---|
-| `docker-compose.yml` | Núcleo: data lake, base, Ollama y harness a demanda |
-| `docker-compose.web.yml` | Web, worker, correo de prueba y túnel |
-| `db/init.sql` | Tablas `pqrs_casos` y `pqrs_partes` |
-| `synthetic_data/generar_datos.py` | 30 casos (10 textos, 10 audios, 10 fotos) con semilla fija + `etiquetas.csv` |
-| `harness/main.py` | El procesador (ver 4.2) |
-| `harness/clasificador.py` | El módulo de IA (ver 4.3) |
-| `harness/evaluar.py` | Precisión contra `etiquetas.csv` |
-| `harness/reporte.py` | Reporte mensual en PDF (matplotlib + reportlab) |
-| `web/app.py` | Ingreso, radicar, seguimiento, mis casos, acceso con QR |
-| `web/panel.py` | Bandeja, detalle, corregir, responder, tablero, reportes, usuarios |
-| `web/comun.py` | Conexiones, correo con respaldo, tablas de la web, armado de cada caso |
-| `web/reglas.py` | Reglas: dominios, límites, radicado, plazos, semáforo, catálogos |
-| `scripts/sistema.py` | Encender y apagar todo con un comando |
-| `scripts/publicar_enlace.py` | Actualiza la página fija con el enlace del túnel |
+| [`docker-compose.yml`](../docker-compose.yml) | Núcleo: data lake, base, Ollama y harness a demanda |
+| [`docker-compose.web.yml`](../docker-compose.web.yml) | Web, worker, correo de prueba y túnel |
+| [`db/init.sql`](../db/init.sql) | Tablas `pqrs_casos` y `pqrs_partes` |
+| [`synthetic_data/generar_datos.py`](../synthetic_data/generar_datos.py) | 30 casos (10 textos, 10 audios, 10 fotos) con semilla fija + `etiquetas.csv` |
+| [`harness/main.py`](../harness/main.py) | El procesador (ver 4.2) |
+| [`harness/clasificador.py`](../harness/clasificador.py) | El módulo de IA (ver 4.3) |
+| [`harness/evaluar.py`](../harness/evaluar.py) | Precisión contra `etiquetas.csv` |
+| [`harness/reporte.py`](../harness/reporte.py) | Reporte mensual en PDF (matplotlib + reportlab) |
+| [`web/app.py`](../web/app.py) | Ingreso, radicar, seguimiento, mis casos, acceso con QR |
+| [`web/panel.py`](../web/panel.py) | Bandeja, detalle, corregir, responder, tablero, reportes, usuarios |
+| [`web/comun.py`](../web/comun.py) | Conexiones, correo con respaldo, tablas de la web, armado de cada caso |
+| [`web/reglas.py`](../web/reglas.py) | Reglas: dominios, límites, radicado, plazos, semáforo, catálogos |
+| [`scripts/sistema.py`](../scripts/sistema.py) | Encender y apagar todo con un comando |
+| [`scripts/publicar_enlace.py`](../scripts/publicar_enlace.py) | Actualiza la página fija con el enlace del túnel |
 
-### 4.2 `harness/main.py`
+### 4.2 [`harness/main.py`](../harness/main.py)
 
 | Función | Qué hace |
 |---|---|
@@ -135,7 +135,7 @@ pendientes = [(k, c) for k, c in listar_objetos(s3) if f"{BUCKET_RAW}/{k}" not i
 texto_total = "\n\n".join(f"[{ETIQUETA_PARTE[p['tipo']]}] {p['texto']}" for p in utiles)
 ```
 
-### 4.3 `harness/clasificador.py`
+### 4.3 [`harness/clasificador.py`](../harness/clasificador.py)
 
 **`clasificar(texto)`** es lo único que usa el resto: arma el prompt → llama al modelo → extrae el
 JSON → valida contra catálogos → aplica reglas. Reintenta una vez si el JSON viene roto.
@@ -212,14 +212,14 @@ ORDER BY r.recibido_en DESC;
 | Concepto | En el proyecto |
 |---|---|
 | Imagen / contenedor | Plantilla / programa corriendo (`postgres:16` → `pqrs-postgres`) |
-| Docker Compose | `docker-compose.yml` (núcleo) + `docker-compose.web.yml` (capa web), combinados con `-f` |
+| Docker Compose | [`docker-compose.yml`](../docker-compose.yml) (núcleo) + [`docker-compose.web.yml`](../docker-compose.web.yml) (capa web), combinados con `-f` |
 | Volumen | Datos persistentes: `datalake_data`, `pg_data`, `ollama_data` (2 GB), `whisper_cache` |
 | Red interna | Los servicios se llaman por nombre: `rustfs:9000`, `postgres:5432`, `ollama:11434`, `web:8000` |
 
 | Servicio | Contenedor | Puerto en el PC | Nota |
 |---|---|---|---|
 | `rustfs` | `pqrs-datalake` | 9000 (S3), 9001 (consola) | |
-| `postgres` | `pqrs-postgres` | 5432 | `healthcheck` con `pg_isready`; monta `db/init.sql` |
+| `postgres` | `pqrs-postgres` | 5432 | `healthcheck` con `pg_isready`; monta [`db/init.sql`](../db/init.sql) |
 | `ollama` | `pqrs-ollama` | 11434 | Versión fija 0.40.16 |
 | `ollama-init` | `pqrs-ollama-init` | — | Descarga el modelo una vez y termina |
 | `harness` | `pqrs-harness` | — | `profiles: ["harness"]`: solo con `run --rm` |
@@ -299,7 +299,7 @@ Problema (1 min) → la idea en una frase (30 s) → arquitectura con el diagram
 (app, panel, buzón, diagrama) y video de respaldo.
 
 **En vivo:**
-1. El profesor escanea el QR (`docs/qr_acceso.png`) y entra con su correo; el código le llega a su
+1. El profesor escanea el QR ([`docs/qr_acceso.png`](../docs/qr_acceso.png)) y entra con su correo; el código le llega a su
    correo (o al buzón local si falla).
 2. Radica texto + foto o graba un audio.
 3. Mientras clasifica, explica los pasos 3 a 6 (puedes mostrar `docker logs -f pqrs-worker`).
@@ -399,7 +399,7 @@ qué se borró, lo reescribo, reconstruyo porque el código vive en la imagen, y
 | Problema | Causa | Solución |
 |---|---|---|
 | `pull access denied` con MinIO | Retiró sus imágenes | RustFS, mismo protocolo S3 |
-| No entraba a la consola del data lake | `.env.example` con espacios al inicio | Líneas `CLAVE=valor` sin espacios |
+| No entraba a la consola del data lake | [`.env.example`](../.env.example) con espacios al inicio | Líneas `CLAVE=valor` sin espacios |
 | Muchos "petición/servicios" | Valores por defecto ocultaban respuestas inválidas | Avisos visibles y mejor prompt |
 | Se escapaban urgencias altas | Modelo pequeño | Palabras de alerta |
 | Reporte fallaba con PQRS mixtas | No conocía el canal `mixto` | Etiqueta agregada |
